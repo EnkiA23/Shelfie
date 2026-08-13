@@ -70,6 +70,30 @@ match a bug.
 - **`scripts/generate_test_photos.py`** — AI-written; synthetic on purpose so the three failure
   modes reproduce on any machine, and flagged as a limitation in the README.
 
+## Pass 6 — Refactor (behaviour-preserving, run last)
+
+Run only after the pipeline and both screens worked end to end, so it is one reviewable
+`refactor:` commit rather than cleanup hidden inside feature diffs.
+
+- Deleted `load_catalog_from_rows` from `matching.py` — dead since the management command does
+  its own CSV parsing.
+- `daily_spend_total` now aggregates in SQL instead of summing `ScanLog` rows in Python.
+- `CONFIDENCE_THRESHOLD` moved from a module constant to a setting, so every threshold and cap
+  lives in one place.
+- Removed a dead `extraction = None` assignment in the pipeline's exception branch.
+
+One behaviour change went in as a `fix` rather than part of the refactor: `vlm.py` used to
+return canned dry-run data when live mode was on but no API key was set, which silently
+produced fake matches from a misconfiguration. It now returns `None` and the pipeline emits a
+`vlm_not_configured` warning, with a test asserting no confident matches come back.
+
+## The four passes as checked-in skills
+
+The workflow above is not just described here — `.cursor/skills/` contains
+`implementation-pass`, `test-pass`, `bugfix-pass` and `refactor-pass` so the same discipline is
+reproducible by anyone working in the repo, and `AGENTS.md` holds the conventions that apply to
+all of them.
+
 ## Things I rejected from AI output
 
 - A first-draft matcher that used `partial_ratio` as the primary signal — false-positive machine.

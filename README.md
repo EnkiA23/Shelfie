@@ -83,8 +83,17 @@ phone cannot reach `127.0.0.1`** — it must be your machine's LAN IP, with the 
 
 ```bash
 cd backend
-python -m pytest scanner/tests -v      # 18 tests: 9 matching, 9 pipeline/API
+python -m pytest scanner/tests -v      # 19 tests: 9 matching, 10 pipeline/API
 ```
+
+### Further reading
+
+| Document | Contents |
+|---|---|
+| `ARCHITECTURE.md` | Monorepo, controller/service layering, monolith-vs-microservices |
+| `AGENTS.md` | Conventions any change must follow |
+| `AI_USAGE.md` | Which AI pass wrote which file |
+| `.cursor/skills/` | The four build passes, checked in and reusable |
 
 ---
 
@@ -125,7 +134,8 @@ expensive model only does the part that actually needs language understanding.
 **Layering.** `views.py` is a thin controller: parse, validate, delegate, shape the response.
 `detector.py`, `vlm.py`, `matching.py`, `metrics.py` are single-purpose service modules, and
 `pipeline.py` composes them and owns the per-stage try/except. That is why `test_matching.py`
-can import and test the scoring logic without touching Django's request cycle.
+can import and test the scoring logic without touching Django's request cycle. Full reasoning,
+including why not microservices and why not a repository pattern, is in `ARCHITECTURE.md`.
 
 **Single call per crop, not one batched call.** Batching all crops into one request would be
 marginally cheaper, but one malformed response would poison every book in the photo. Per-crop
