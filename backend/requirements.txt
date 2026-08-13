@@ -1,0 +1,14 @@
+django>=5.0,<6.0
+djangorestframework>=3.15
+django-cors-headers>=4.3
+django-environ>=0.11
+rapidfuzz>=3.6
+pillow>=10.0
+opencv-python-headless>=4.9
+
+# Stage 1 pretrained local detector (CPU inference). Pulls in torch.
+# Remove this and set DETECTOR_BACKEND=opencv for a lighter install.
+ultralytics>=8.3
+
+pytest>=8.0
+pytest-django>=4.8
