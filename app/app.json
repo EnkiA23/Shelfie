@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Shelfie",
+    "slug": "shelfie",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios", "android", "web"],
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Shelfie uses the camera to photograph book spines on your shelf.",
+        "NSPhotoLibraryUsageDescription": "Shelfie lets you pick a bookshelf photo from your library."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#2F5233"
+      },
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES", "READ_EXTERNAL_STORAGE"]
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Shelfie uses the camera to photograph book spines on your shelf.",
+          "photosPermission": "Shelfie lets you pick a bookshelf photo from your library."
+        }
+      ]
+    ]
+  }
+}
