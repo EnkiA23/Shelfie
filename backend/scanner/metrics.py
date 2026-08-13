@@ -81,10 +81,13 @@ def daily_vlm_calls_total() -> int:
 
 
 def daily_spend_total() -> float:
+    from django.db.models import Sum
     from django.utils import timezone
 
     from scanner.models import ScanLog
 
     today = timezone.now().date()
-    rows = ScanLog.objects.filter(created_at__date=today)
-    return float(sum(row.est_cost_usd for row in rows))
+    total = ScanLog.objects.filter(created_at__date=today).aggregate(
+        total=Sum("est_cost_usd")
+    )["total"]
+    return float(total or 0.0)

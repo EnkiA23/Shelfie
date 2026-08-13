@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from rapidfuzz import fuzz
 
@@ -129,20 +129,3 @@ def match_against_catalog(
     return filtered[:top_n]
 
 
-def load_catalog_from_rows(rows: Iterable[dict]) -> list[CatalogBook]:
-    books: list[CatalogBook] = []
-    for row in rows:
-        alt_raw = row.get("alternate_titles") or ""
-        alternates = tuple(
-            part.strip() for part in alt_raw.split("|") if part and part.strip()
-        )
-        books.append(
-            CatalogBook(
-                id=int(row["id"]),
-                title=row["title"],
-                author=row["author"],
-                alternate_titles=alternates,
-                edition_info=row.get("edition_info") or "",
-            )
-        )
-    return books

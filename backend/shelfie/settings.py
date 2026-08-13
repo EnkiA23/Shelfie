@@ -23,6 +23,7 @@ env = environ.Env(
     YOLO_IMAGE_SIZE=(int, 640),
     INCLUDE_CROP_THUMBNAILS=(bool, True),
     CROP_THUMBNAIL_MAX_EDGE=(int, 160),
+    CONFIDENCE_THRESHOLD=(float, 0.85),
 )
 
 environ.Env.read_env(BASE_DIR / ".env")
@@ -131,3 +132,6 @@ YOLO_MIN_CONFIDENCE = env("YOLO_MIN_CONFIDENCE")
 YOLO_IMAGE_SIZE = env("YOLO_IMAGE_SIZE")
 INCLUDE_CROP_THUMBNAILS = env("INCLUDE_CROP_THUMBNAILS")
 CROP_THUMBNAIL_MAX_EDGE = env("CROP_THUMBNAIL_MAX_EDGE")
+
+# Scores at or above this are auto-accepted; everything else goes to human review.
+CONFIDENCE_THRESHOLD = env("CONFIDENCE_THRESHOLD")
