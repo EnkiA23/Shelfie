@@ -89,6 +89,17 @@ def test_vlm_exception_does_not_crash_scan(catalog, settings, monkeypatch):
     assert "vlm_error" in result["needs_review"][0]["warnings"]
 
 
+def test_live_mode_without_key_is_reported_not_faked(catalog, settings):
+    settings.VLM_DRY_RUN = False
+    settings.VLM_PROVIDER = "gemini"
+    settings.GEMINI_API_KEY = ""
+
+    result = run_scan_pipeline(make_image_bytes())
+
+    assert "vlm_not_configured" in result["metrics"]["warnings"]
+    assert result["high_confidence"] == [], "a missing key must not produce confident matches"
+
+
 def test_per_scan_vlm_call_cap_is_enforced(catalog, settings, monkeypatch):
     settings.VLM_DRY_RUN = True
     settings.MAX_VLM_CALLS_PER_SCAN = 2

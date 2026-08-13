@@ -54,6 +54,23 @@ def _parse_extraction_payload(raw: str) -> dict[str, str] | None:
     }
 
 
+def api_key_for_provider() -> str:
+    provider = getattr(settings, "VLM_PROVIDER", "gemini").lower()
+    key_setting = {
+        "gemini": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }.get(provider, "GEMINI_API_KEY")
+    return getattr(settings, key_setting, "")
+
+
+def is_configured() -> bool:
+    """True when a live call can actually be made, i.e. dry run off and a key present."""
+    if getattr(settings, "VLM_DRY_RUN", False):
+        return True
+    return bool(api_key_for_provider())
+
+
 def _call_provider(crop: Image.Image, timeout: int) -> dict[str, str] | None:
     provider = getattr(settings, "VLM_PROVIDER", "gemini").lower()
     prepared = _prepare_crop(crop)
@@ -90,7 +107,7 @@ def _call_gemini(crop: Image.Image, timeout: int) -> dict[str, str] | None:
 
     api_key = getattr(settings, "GEMINI_API_KEY", "")
     if not api_key:
-        return _dry_run_response()
+        return None
 
     model = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")
     payload = {

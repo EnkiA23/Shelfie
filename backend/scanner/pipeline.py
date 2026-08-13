@@ -12,9 +12,10 @@ from scanner.matching import CatalogBook as MatchBook
 from scanner.matching import match_against_catalog
 from scanner.metrics import MetricsTracker, StageTimer, daily_vlm_calls_total, estimate_vlm_cost
 from scanner.models import CatalogBook
-from scanner.vlm import extract_text_from_crop
+from scanner.vlm import extract_text_from_crop, is_configured
 
-CONFIDENCE_THRESHOLD = 0.85
+def _confidence_threshold() -> float:
+    return float(getattr(settings, "CONFIDENCE_THRESHOLD", 0.85))
 
 
 def _catalog_to_match_books() -> list[MatchBook]:
@@ -125,13 +126,17 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
                 warnings=[],
             ),
         ]
-        high = [i for i in stub_items if i["confidence_score"] >= CONFIDENCE_THRESHOLD]
-        review = [i for i in stub_items if i["confidence_score"] < CONFIDENCE_THRESHOLD]
+        threshold = _confidence_threshold()
+        high = [i for i in stub_items if i["confidence_score"] >= threshold]
+        review = [i for i in stub_items if i["confidence_score"] < threshold]
         metrics.spines_detected = len(stub_items)
         metrics.spines_matched = len(high)
         return {"high_confidence": high, "needs_review": review, "metrics": metrics.to_dict()}
 
     dry_run = bool(getattr(settings, "VLM_DRY_RUN", False))
+    if not is_configured():
+        # Live mode with no key would otherwise look like a model failure on every crop.
+        metrics.warnings.append("vlm_not_configured")
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     boxes: list[BoundingBox] = []
 
@@ -164,6 +169,7 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
         metrics.warnings.append(f"vlm_calls_capped_at_{max_calls}")
 
     metrics.spines_detected = len(selected_boxes)
+    threshold = _confidence_threshold()
     high_confidence: list[dict[str, Any]] = []
     needs_review: list[dict[str, Any]] = []
     vlm_calls = 0
@@ -185,7 +191,6 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
                     extracted_author = extraction.get("extracted_author", "")
             except Exception:
                 item_warnings.append("vlm_error")
-                extraction = None
 
             try:
                 candidates = match_against_catalog(extracted_title, extracted_author, catalog)
@@ -204,7 +209,7 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
                 crop=crop,
             )
 
-            if item["confidence_score"] >= CONFIDENCE_THRESHOLD and extracted_title:
+            if item["confidence_score"] >= threshold and extracted_title:
                 high_confidence.append(item)
             else:
                 needs_review.append(item)
