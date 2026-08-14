@@ -1,0 +1,7 @@
+# Optional Stage 1 detector: pretrained YOLOv8n, CPU inference.
+#
+# Installing this pulls torch and is a large download. Skip it and the detector
+# uses the OpenCV vertical-edge fallback instead — see README "Detector" for the
+# measured difference between the two.
+-r requirements.txt
+ultralytics>=8.3

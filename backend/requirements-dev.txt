@@ -1,0 +1,5 @@
+# Test and lint tooling. This is what CI installs.
+-r requirements.txt
+pytest>=8.0
+pytest-django>=4.8
+ruff>=0.6
