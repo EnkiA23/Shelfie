@@ -7,9 +7,12 @@ Django REST API, which crops individual spines with a local CPU model, reads tit
 each crop with a hosted vision-language model, fuzzy-matches every read against a deliberately
 messy `catalog.csv`, and routes anything uncertain to a human review step before it is saved.
 
+This README follows the order the take-home brief asked for: setup, architecture, measured
+numbers, the catalog, key decisions, and what's unfinished.
+
 ---
 
-## 1. Setup from a clean clone
+## 1. Setup — run it from a clean clone
 
 ### Backend
 
@@ -77,7 +80,7 @@ to `gemini-2.0-flash`, which has since been retired, and every call began return
 
 Nothing else needs to change — every module reads config from `settings.py`, never from
 `os.environ` directly. `.env` is gitignored, `.env.example` is the committed template, and CI
-fails if either rule is broken (see §9).
+fails if either rule is broken (see the CI section at the end).
 
 If you would rather not use a key at all, leave `VLM_DRY_RUN=True` and use the **"Demo without
 API"** button in the app, which exercises the full review-and-save flow with canned data.
@@ -184,12 +187,13 @@ Expo app ──multipart photo──▶ POST /api/scan/         [Django + DRF]
    Review screen (confirm / edit / discard) ──▶ POST /api/library/ ──▶ Library screen
 ```
 
-**Why crop locally first.** This is the core design decision. Sending the whole shelf photo to a
-VLM asks it to *find* text anywhere in a cluttered image and guess which words belong to which
-book. Cropping first changes the question to "read the text on this one spine," which is both
-cheaper (a 512px crop is far fewer image tokens than a full-resolution shelf) and more accurate
-(less surface area to hallucinate across). The local model does the cheap spatial work; the
-expensive model only does the part that actually needs language understanding.
+**Why crop locally first.** This is the core design decision — and the answer to "local vs.
+hosted routing": Stage 1 (spine detection) is spatial work a CPU model can do for free; Stage 2
+(reading text) needs real language understanding, which only the hosted VLM has. Sending the
+whole shelf photo to a VLM asks it to *find* text anywhere in a cluttered image and guess which
+words belong to which book. Cropping first changes the question to "read the text on this one
+spine," which is both cheaper (a 512px crop is far fewer image tokens than a full-resolution
+shelf) and more accurate (less surface area to hallucinate across).
 
 **Layering.** `views.py` is a thin controller: parse, validate, delegate, shape the response.
 `detector.py`, `vlm.py`, `matching.py`, `metrics.py` are single-purpose service modules, and
@@ -213,9 +217,104 @@ The per-scan cap keeps the call count bounded.
 
 All endpoints require `Authorization: Bearer <APP_SHARED_TOKEN>`.
 
+### 2.1 Matching, and how the confidence score is built
+
+`scanner/matching.py`. Exact string comparison fails on every ambiguity in the catalog (§4), so:
+
+**Normalisation** (both sides): lowercase, strip punctuation, drop the subtitle after a colon
+(`The Great Gatsby: A Novel` → `great gatsby`), strip leading articles (`The`, `A`, `An`).
+
+**Title score** — the best result across the canonical title *and* every alternate title:
+
+```
+0.55 · token_sort_ratio   # word order and reordering
+0.35 · ratio              # overall string similarity
+0.10 · partial_ratio      # substring hint, deliberately weighted down
+```
+
+`partial_ratio` is the trap. It scores `Great` against `The Great Gatsby` near 1.0, so it is a
+10% tiebreaker rather than a primary signal.
+
+**Author modifier** — added to the title score, not used as a hard filter:
+
+| Situation | Modifier |
+|---|---|
+| Exact normalised match | +0.12 |
+| Shared name token (handles `J.R.R. Tolkien` ↔ `Tolkien, J.R.R.`) | +0.08 |
+| Surname-only match | +0.06 |
+| No token overlap at all | **−0.20** |
+
+That −0.20 is what makes `The Road` work. Both rows score 1.00 on title; McCarthy's row ends at
+1.00 and London's at 0.80, which drops it below the 0.85 auto-accept line and into review instead
+of being silently accepted. It is a modifier rather than a filter because spine OCR frequently
+returns no author at all, and a missing author should mean "less certain," not "no match."
+
+**Output:** top-N scored candidates, not just the winner, so the review screen can offer
+"did you mean" alternatives. `>= 0.85` is auto-accepted; everything else goes to review.
+
+Every row in the catalog ambiguity table (§4) has a test in `scanner/tests/test_matching.py`.
+
+### 2.2 Human in the loop
+
+The review screen is a product screen, not a debug dump:
+
+- **High confidence** (≥ 0.85): listed with the spine crop thumbnail and an "Add all" action.
+- **Needs review**: everything else — low score, no match, or a spine the VLM could not read.
+  Each card shows the actual crop the model looked at, editable title and author fields, catalog
+  autocomplete backed by `/api/catalog/search/`, "did you mean" alternatives, an individual
+  "Add to library" action, and Discard.
+
+Nothing is auto-accepted below the threshold, and nothing is dropped silently: a failed read
+still becomes a review card, carrying the crop image and a plain-language explanation, so the
+user can type the title themselves rather than wondering why a book vanished. Every card — in
+both sections — can be saved individually, not just bulk-accepted, since most real-shelf scans
+land the majority of items in "needs review," not "high confidence."
+
+### 2.3 Graceful failure
+
+Every failure mode returns HTTP 200 with a usable payload and a machine-readable warning:
+
+| Failure | Behaviour | Warning |
+|---|---|---|
+| Detector finds nothing | Whole image sent on as a single crop | `zero_detections_fallback_full_image` |
+| Detector raises | Caught, falls through to the same path | `detector_error` |
+| No API key in live mode | Reported as misconfiguration, never faked | `vlm_not_configured` |
+| Key rejected by provider | No retry, promoted to a scan-level banner | `vlm_auth_failed` |
+| Model name retired | No retry, banner names the setting to change | `vlm_model_unavailable` |
+| Provider rate limits us | Retried, then that crop becomes a review card | `vlm_rate_limited` |
+| Provider times out | Retried, then that crop becomes a review card | `vlm_timeout` |
+| Model replies with broken JSON | Retried, then that crop becomes a review card | `vlm_unreadable_response` |
+| VLM raises anything else | Scan continues with the remaining crops | `vlm_error` |
+| Too many spines | Top-N by box confidence, rest reported as not scanned | `vlm_calls_capped_at_N` |
+| Daily quota exhausted | 429 before any billed call | `daily_vlm_cap_reached` |
+| Anything unexpected | View-level catch returns empty lists + warning | `unexpected_pipeline_error` |
+
+**Why these are separate codes rather than one `vlm_failed`.** They were one code originally, and
+that cost real time: when Gemini retired `gemini-2.0-flash`, every crop returned a bare `None`
+that looked exactly like a bad key, a network blip, or an unreadable spine. Diagnosing it needed
+a throwaway script. A bad key, a retired model and a garbled answer need three different fixes,
+so they now carry three different codes. Failures that will repeat identically on every crop —
+anything about the key or the model — are promoted once to scan level so the app shows one
+actionable banner instead of ten identical row warnings, and are never retried, because retrying
+a 404 only burns latency.
+
+`app/lib/warnings.ts` is the single place that turns a code into a message and decides whether it
+is the user's problem ("retake the photo") or the operator's ("fix the key"). Every path here is
+covered by `scanner/tests/test_pipeline.py`.
+
+Test photos in `test_photos/` reproduce these on demand:
+
+| File | Exercises |
+|---|---|
+| `shelf_readable.jpg` | Normal path, 10 spines detected |
+| `shelf_low_confidence.jpg` | Blurred spines → low scores → review queue |
+| `shelf_zero_detections.jpg` | Empty wall → zero-detection fallback |
+
+Regenerate with `python scripts/generate_test_photos.py`.
+
 ---
 
-## 3. Measured numbers
+## 3. Measured latency and cost
 
 All figures below are from live runs against Gemini 3.1 Flash-Lite, not estimates. Machine:
 Windows 11, Python 3.11, CPU inference only, home broadband. Reproduce with:
@@ -265,129 +364,7 @@ and calls the provider never served — a rejected key, a retired model — are 
 Each scan's cost is written to `ScanLog` and accumulates against the daily cap, so the number
 above is arithmetic the code performs rather than a figure typed into this file.
 
----
-
-## 4. The catalog
-
-`backend/catalog.csv` — 130 entries, columns: `id, title, author, alternate_titles, edition_info`.
-Load it with `python manage.py load_catalog`. It was first-drafted with an LLM and then hand-edited
-so that each required ambiguity is actually present and actually breaks naive matching.
-
-| Ambiguity | Rows | Why it is hard |
-|---|---|---|
-| Two editions of one book | `Pride and Prejudice` ×2 (1813 first edition, Norton Critical) | Identical title *and* author; only `edition_info` separates them, so a matcher must return both rather than silently picking one |
-| US/UK regional titles | `Sorcerer's Stone` / `Philosopher's Stone` | Cross-referenced through `alternate_titles`, so either spine resolves to either row |
-| Same title, different authors | `The Road` — Cormac McCarthy vs Jack London | Title score is 1.00 for both; **only the author signal can separate them** |
-| Omnibus + volumes | `The Lord of the Rings` plus Fellowship / Two Towers / Return of the King | Substring overlap pulls the omnibus into every volume's candidate list |
-| Substring titles | `Great` (Sara Benincasa) vs `The Great Gatsby` | `partial_ratio` alone scores this ~1.0 — a textbook false positive |
-| Author name variants | Tolkien as `J.R.R. Tolkien`, `Tolkien, J.R.R.`, `John Ronald Reuel Tolkien` | Exact author comparison fails on all three forms |
-
-The list is weighted toward books people actually own — bestsellers, classics, popular SF/fantasy —
-because a catalog of obscure titles would match nothing against a real shelf and prove nothing.
-
-Regenerate with `python scripts/generate_catalog.py`.
-
----
-
-## 5. Matching, and how the confidence score is built
-
-`scanner/matching.py`. Exact string comparison fails on every row in the table above, so:
-
-**Normalisation** (both sides): lowercase, strip punctuation, drop the subtitle after a colon
-(`The Great Gatsby: A Novel` → `great gatsby`), strip leading articles (`The`, `A`, `An`).
-
-**Title score** — the best result across the canonical title *and* every alternate title:
-
-```
-0.55 · token_sort_ratio   # word order and reordering
-0.35 · ratio              # overall string similarity
-0.10 · partial_ratio      # substring hint, deliberately weighted down
-```
-
-`partial_ratio` is the trap. It scores `Great` against `The Great Gatsby` near 1.0, so it is a
-10% tiebreaker rather than a primary signal.
-
-**Author modifier** — added to the title score, not used as a hard filter:
-
-| Situation | Modifier |
-|---|---|
-| Exact normalised match | +0.12 |
-| Shared name token (handles `J.R.R. Tolkien` ↔ `Tolkien, J.R.R.`) | +0.08 |
-| Surname-only match | +0.06 |
-| No token overlap at all | **−0.20** |
-
-That −0.20 is what makes `The Road` work. Both rows score 1.00 on title; McCarthy's row ends at
-1.00 and London's at 0.80, which drops it below the 0.85 auto-accept line and into review instead
-of being silently accepted. It is a modifier rather than a filter because spine OCR frequently
-returns no author at all, and a missing author should mean "less certain," not "no match."
-
-**Output:** top-N scored candidates, not just the winner, so the review screen can offer
-"did you mean" alternatives. `>= 0.85` is auto-accepted; everything else goes to review.
-
-Every row in that table has a test in `scanner/tests/test_matching.py`.
-
----
-
-## 6. Human in the loop
-
-The review screen is a product screen, not a debug dump:
-
-- **High confidence** (≥ 0.85): listed with the spine crop thumbnail and an "Add all" action.
-- **Needs review**: everything else — low score, no match, or a spine the VLM could not read.
-  Each card shows the actual crop the model looked at, editable title and author fields, catalog
-  autocomplete backed by `/api/catalog/search/`, "did you mean" alternatives, and Discard.
-
-Nothing is auto-accepted below the threshold, and nothing is dropped silently: a failed read
-still becomes a review card, carrying the crop image and a plain-language explanation, so the
-user can type the title themselves rather than wondering why a book vanished.
-
----
-
-## 7. Graceful failure
-
-Every failure mode returns HTTP 200 with a usable payload and a machine-readable warning:
-
-| Failure | Behaviour | Warning |
-|---|---|---|
-| Detector finds nothing | Whole image sent on as a single crop | `zero_detections_fallback_full_image` |
-| Detector raises | Caught, falls through to the same path | `detector_error` |
-| No API key in live mode | Reported as misconfiguration, never faked | `vlm_not_configured` |
-| Key rejected by provider | No retry, promoted to a scan-level banner | `vlm_auth_failed` |
-| Model name retired | No retry, banner names the setting to change | `vlm_model_unavailable` |
-| Provider rate limits us | Retried, then that crop becomes a review card | `vlm_rate_limited` |
-| Provider times out | Retried, then that crop becomes a review card | `vlm_timeout` |
-| Model replies with broken JSON | Retried, then that crop becomes a review card | `vlm_unreadable_response` |
-| VLM raises anything else | Scan continues with the remaining crops | `vlm_error` |
-| Too many spines | Top-N by box confidence, rest reported as not scanned | `vlm_calls_capped_at_N` |
-| Daily quota exhausted | 429 before any billed call | `daily_vlm_cap_reached` |
-| Anything unexpected | View-level catch returns empty lists + warning | `unexpected_pipeline_error` |
-
-**Why these are separate codes rather than one `vlm_failed`.** They were one code originally, and
-that cost real time: when Gemini retired `gemini-2.0-flash`, every crop returned a bare `None`
-that looked exactly like a bad key, a network blip, or an unreadable spine. Diagnosing it needed
-a throwaway script. A bad key, a retired model and a garbled answer need three different fixes,
-so they now carry three different codes. Failures that will repeat identically on every crop —
-anything about the key or the model — are promoted once to scan level so the app shows one
-actionable banner instead of ten identical row warnings, and are never retried, because retrying
-a 404 only burns latency.
-
-`app/lib/warnings.ts` is the single place that turns a code into a message and decides whether it
-is the user's problem ("retake the photo") or the operator's ("fix the key"). Every path here is
-covered by `scanner/tests/test_pipeline.py`.
-
-Test photos in `test_photos/` reproduce these on demand:
-
-| File | Exercises |
-|---|---|
-| `shelf_readable.jpg` | Normal path, 10 spines detected |
-| `shelf_low_confidence.jpg` | Blurred spines → low scores → review queue |
-| `shelf_zero_detections.jpg` | Empty wall → zero-detection fallback |
-
-Regenerate with `python scripts/generate_test_photos.py`.
-
----
-
-## 8. Cost and abuse controls
+### 3.1 Cost and abuse controls
 
 An unauthenticated endpoint that triggers billed API calls is a real risk on conference Wi-Fi,
 so there are two layers: stop the request volume, and cap what any single scan can spend.
@@ -412,7 +389,93 @@ endpoint being open to the network.
 
 ---
 
-## 9. CI
+## 4. The catalog: how it was built, and the ambiguity I put in on purpose
+
+`backend/catalog.csv` — 130 entries, columns: `id, title, author, alternate_titles, edition_info`.
+Load it with `python manage.py load_catalog`. It was first-drafted with an LLM and then hand-edited
+so that each required ambiguity is actually present and actually breaks naive matching.
+
+| Ambiguity | Rows | Why it is hard |
+|---|---|---|
+| Two editions of one book | `Pride and Prejudice` ×2 (1813 first edition, Norton Critical) | Identical title *and* author; only `edition_info` separates them, so a matcher must return both rather than silently picking one |
+| US/UK regional titles | `Sorcerer's Stone` / `Philosopher's Stone` | Cross-referenced through `alternate_titles`, so either spine resolves to either row |
+| Same title, different authors | `The Road` — Cormac McCarthy vs Jack London | Title score is 1.00 for both; **only the author signal can separate them** |
+| Omnibus + volumes | `The Lord of the Rings` plus Fellowship / Two Towers / Return of the King | Substring overlap pulls the omnibus into every volume's candidate list |
+| Substring titles | `Great` (Sara Benincasa) vs `The Great Gatsby` | `partial_ratio` alone scores this ~1.0 — a textbook false positive |
+| Author name variants | Tolkien as `J.R.R. Tolkien`, `Tolkien, J.R.R.`, `John Ronald Reuel Tolkien` | Exact author comparison fails on all three forms |
+
+Each row above was chosen deliberately, not generated at random, because those are exactly the
+six ambiguity types the brief asked the catalog to prove — a clean catalog would make matching
+trivial and demonstrate nothing.
+
+The list is weighted toward books people actually own — bestsellers, classics, popular SF/fantasy —
+because a catalog of obscure titles would match nothing against a real shelf and prove nothing.
+
+Regenerate with `python scripts/generate_catalog.py`.
+
+---
+
+## 5. Key decisions and tradeoffs
+
+- **Monolith, not microservices.** One consumer, one machine, no deployment requirement. Splitting
+  detect/VLM/match into services would mean three sets of error handling to keep in sync with the
+  "never crash" requirement, for none of the benefits. The service-layer split already gives the
+  isolation and testability people reach for microservices to get.
+- **One repository, not an Nx/Turborepo-style workspace.** Two components (one API, one client)
+  don't share code, don't need independent build graphs, and don't have separate teams — the
+  three problems that kind of workspace exists to solve. It would add a directory level and a
+  tool to keep working for no benefit at this scale. Full reasoning in
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+- **YOLOv8n with an OpenCV fallback, rather than picking one.** The brief requires a pretrained
+  local model; the measurements above show COCO's `book` class is unreliable on vertical spines.
+  Keeping both means the requirement is genuinely met while the app still works when the model
+  finds nothing. Set `DETECTOR_BACKEND=opencv` to skip YOLO and save ~300 ms per image.
+- **Per-crop VLM calls over one batched call** — blast radius, as described in §2. The latency
+  cost of that choice is paid back with a bounded thread pool rather than by batching, which keeps
+  one bad spine from poisoning the other nine.
+- **0.85 threshold**, chosen so that a title-perfect match with a *wrong* author (score 0.80)
+  lands in review rather than being auto-accepted. It is a setting, not a literal, so every
+  threshold and cap lives in one file.
+- **Typed failure codes instead of a nullable return.** A `dict | None` from the VLM layer made
+  four unrelated problems look identical and cost an afternoon of debugging. Naming each failure
+  is what let the app tell the user whether to retake the photo or fix the key.
+- **SQLite and a management command to load the catalog**, so the catalog stays a reviewable CSV
+  in version control rather than hand-maintained database rows.
+- **Cropping locally is the whole cost story** — it is what makes per-photo cost a tenth of a cent.
+
+---
+
+## 6. What is unfinished, and what I would do with another day
+
+**Unfinished, honestly:**
+
+1. **Test photos are synthetic.** They reproduce every failure mode deterministically on any
+   machine, which is why they are committed, but they are rendered rectangles rather than
+   photographs — and that is part of why YOLO scores zero on them. Accuracy on a real shelf, with
+   real lighting and tilted spines, is unmeasured.
+2. **YOLO detection quality is not good enough to lead with.** In practice the OpenCV projection
+   does the work on these images, and the YOLO attempt costs weight-loading time for nothing.
+3. **No crop caching**, so re-scanning the same photo pays the full VLM cost again.
+4. **No end-to-end test through the Expo app.** The backend is well covered and the client is
+   typechecked, but nothing exercises capture → review → save as one flow.
+5. **Deployment is not addressed.** CI proves the code is sound; there is no CD, no container,
+   and SQLite with `DEBUG` off has not been validated for anything beyond local use.
+
+**With another day:**
+
+1. Swap the COCO checkpoint for a book-spine-specific community checkpoint, and measure
+   precision/recall against hand-labelled boxes instead of eyeballing box counts.
+2. Deskew each crop before Stage 2 — spines are often tilted, and rotating to vertical should
+   lift read accuracy for free.
+3. Cache VLM results keyed by a crop hash so repeated demos cost nothing.
+4. Let the review screen merge duplicates when the same book is detected twice in one photo.
+5. Persist `source_image` per library entry so the library can show the original crop.
+
+See [`AI_USAGE.md`](AI_USAGE.md) for how AI tools were used to build this.
+
+---
+
+## Appendix: CI
 
 `.github/workflows/ci.yml` runs on every push and pull request:
 
@@ -438,61 +501,6 @@ real key filled in. Run it locally the same way CI does:
 
 `.gitattributes` pins shell scripts to LF so a Windows checkout cannot commit a CRLF shebang that
 Linux refuses to execute, and Dependabot opens grouped weekly dependency PRs.
-
----
-
-## 10. Key decisions and tradeoffs
-
-- **Monolith, not microservices.** One consumer, one machine, no deployment requirement. Splitting
-  detect/VLM/match into services would mean three sets of error handling to keep in sync with the
-  "never crash" requirement, for none of the benefits. The service-layer split already gives the
-  isolation and testability people reach for microservices to get.
-- **YOLOv8n with an OpenCV fallback, rather than picking one.** The brief requires a pretrained
-  local model; the measurements above show COCO's `book` class is unreliable on vertical spines.
-  Keeping both means the requirement is genuinely met while the app still works when the model
-  finds nothing. Set `DETECTOR_BACKEND=opencv` to skip YOLO and save ~300 ms per image.
-- **Per-crop VLM calls over one batched call** — blast radius, as described above. The latency
-  cost of that choice is paid back with a bounded thread pool rather than by batching, which keeps
-  one bad spine from poisoning the other nine.
-- **0.85 threshold**, chosen so that a title-perfect match with a *wrong* author (score 0.80)
-  lands in review rather than being auto-accepted. It is a setting, not a literal, so every
-  threshold and cap lives in one file.
-- **Typed failure codes instead of a nullable return.** A `dict | None` from the VLM layer made
-  four unrelated problems look identical and cost an afternoon of debugging. Naming each failure
-  is what let the app tell the user whether to retake the photo or fix the key.
-- **SQLite and a management command to load the catalog**, so the catalog stays a reviewable CSV
-  in version control rather than hand-maintained database rows.
-- **Cropping locally is the whole cost story** — it is what makes per-photo cost a tenth of a cent.
-
----
-
-## 11. What is unfinished, and what I would do next
-
-**Unfinished, honestly:**
-
-1. **Test photos are synthetic.** They reproduce every failure mode deterministically on any
-   machine, which is why they are committed, but they are rendered rectangles rather than
-   photographs — and that is part of why YOLO scores zero on them. Accuracy on a real shelf, with
-   real lighting and tilted spines, is unmeasured. Real photos should be committed alongside.
-2. **YOLO detection quality is not good enough to lead with.** In practice the OpenCV projection
-   does the work on these images, and the YOLO attempt costs weight-loading time for nothing.
-3. **No crop caching**, so re-scanning the same photo pays the full VLM cost again.
-4. **No end-to-end test through the Expo app.** The backend is well covered and the client is
-   typechecked, but nothing exercises capture → review → save as one flow.
-5. **Deployment is not addressed.** CI proves the code is sound; there is no CD, no container,
-   and SQLite with `DEBUG` off has not been validated for anything beyond local use.
-
-**With another day:**
-
-1. Swap the COCO checkpoint for a book-spine-specific community checkpoint, and measure
-   precision/recall against hand-labelled boxes instead of eyeballing box counts.
-2. Deskew each crop before Stage 2 — spines are often tilted, and rotating to vertical should
-   lift read accuracy for free.
-3. Cache VLM results keyed by a crop hash so repeated demos cost nothing.
-4. Let the review screen merge duplicates when the same book is detected twice in one photo.
-5. Persist `source_image` per library entry so the library can show the original crop.
-
-See [`AI_USAGE.md`](AI_USAGE.md) for how AI tools were used to build this.
 
 ---
 
