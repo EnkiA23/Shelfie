@@ -41,7 +41,8 @@ HTTP 200, and be mapped to a friendly message in the app. Silent drops are a gra
 ## Before finishing
 
 ```bash
-cd backend && python -m pytest scanner/tests -q
+nx run backend:test
+# or: cd apps/backend && python -m pytest scanner/tests -q
 ```
 
 Then commit that single unit with a scoped message (`feat(matching): ...`). Do not start the

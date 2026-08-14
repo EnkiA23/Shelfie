@@ -115,7 +115,20 @@ The workflow above is not just described here — `.cursor/skills/` contains
 reproducible by anyone working in the repo, and `AGENTS.md` holds the conventions that apply to
 all of them.
 
-## Things I rejected from AI output
+## Pass 8 — FriendMap-style monorepo layout
+
+Restructured to match the FriendMap workflow the user asked for:
+
+- `backend/` → `apps/backend/`, `app/` → `apps/mobile/` (git mv, history preserved)
+- Root `package.json`, `pnpm-workspace.yaml`, `nx.json`, per-app `project.json`
+- CI renamed to `.github/workflows/pr.yml`, runs Nx targets (FriendMap `pr.yml` pattern,
+  but keeps Shelfie's full backend + mobile + secret scanning — FriendMap only gates Flutter)
+- `CLAUDE.md` as the repo guide; `.github/agents/` + `.cursor/agents/shelfie_master.json`
+- `docs/shelfie-features.md` feature → file map (like FriendMap's `flutter-app-features.md`)
+
+Human decision: adopt FriendMap's `apps/` + Nx orchestration while keeping Shelfie's stronger
+CI and secret guard, rather than copying FriendMap's Flutter-only PR gate verbatim.
+
 
 - A first-draft matcher that used `partial_ratio` as the primary signal — false-positive machine.
 - Batching all crops into one VLM call: cheaper, but one malformed response loses the whole scan.
