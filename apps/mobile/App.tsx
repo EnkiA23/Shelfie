@@ -2,8 +2,8 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import React, { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Platform, StyleSheet, Text, View } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { ScanResponse } from "./api/client";
@@ -40,12 +40,21 @@ function MainTabs({
 }: {
   onScanComplete: (result: ScanResponse) => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = 64 + Math.max(insets.bottom, 8);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: tabBarHeight,
+            paddingBottom: Math.max(insets.bottom, 8),
+          },
+        ],
         tabBarIcon: ({ focused }) => <TabIcon label={route.name} focused={focused} />,
       })}
     >
@@ -100,12 +109,19 @@ export default function App() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    height: 78,
     paddingTop: 8,
-    paddingBottom: 12,
     backgroundColor: theme.colors.surface,
     borderTopColor: theme.colors.border,
     borderTopWidth: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#1F1A17",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 8 },
+    }),
   },
   tabIconWrap: { alignItems: "center", gap: 4 },
   tabIcon: { fontSize: 22, opacity: 0.55 },

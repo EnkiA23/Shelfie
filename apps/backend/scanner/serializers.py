@@ -16,19 +16,34 @@ class LibraryEntrySerializer(serializers.ModelSerializer):
         allow_null=True,
         required=False,
     )
+    # Prefer the catalog match when we have one; raw_* is what the VLM actually read.
+    title = serializers.SerializerMethodField()
+    author = serializers.SerializerMethodField()
 
     class Meta:
         model = LibraryEntry
         fields = [
             "id",
             "catalog_book_id",
+            "title",
+            "author",
             "raw_title",
             "raw_author",
             "confidence_score",
             "source_image",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "title", "author"]
+
+    def get_title(self, obj: LibraryEntry) -> str:
+        if obj.catalog_book_id:
+            return obj.catalog_book.title
+        return obj.raw_title
+
+    def get_author(self, obj: LibraryEntry) -> str:
+        if obj.catalog_book_id:
+            return obj.catalog_book.author
+        return obj.raw_author
 
 
 class LibraryEntryCreateSerializer(serializers.ModelSerializer):

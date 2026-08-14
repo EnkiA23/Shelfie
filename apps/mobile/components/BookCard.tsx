@@ -9,8 +9,10 @@ type Props = {
   confidence?: number;
   subtitle?: string;
   thumbnail?: string | null;
+  badge?: string;
   onPress?: () => void;
   rightSlot?: React.ReactNode;
+  showConfidence?: boolean;
 };
 
 export default function BookCard({
@@ -19,27 +21,48 @@ export default function BookCard({
   confidence,
   subtitle,
   thumbnail,
+  badge,
   onPress,
   rightSlot,
+  showConfidence = true,
 }: Props) {
   const content = (
     <>
       <View style={styles.headerRow}>
         {thumbnail ? (
           <Image source={{ uri: thumbnail }} style={styles.thumbnail} resizeMode="cover" />
-        ) : null}
+        ) : (
+          <View style={styles.placeholderThumb}>
+            <Text style={styles.placeholderEmoji}>📖</Text>
+          </View>
+        )}
         <View style={styles.textBlock}>
-          <Text style={styles.title} numberOfLines={2}>
+          {badge ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{badge}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.title} numberOfLines={3}>
             {title}
           </Text>
-          {author ? <Text style={styles.author}>{author}</Text> : null}
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+          {author ? (
+            <Text style={styles.author} numberOfLines={2}>
+              {author}
+            </Text>
+          ) : null}
+          {subtitle ? (
+            <Text style={styles.subtitle} numberOfLines={2}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
         {rightSlot}
       </View>
-      {typeof confidence === "number" ? (
-        <View style={styles.confidenceRow}>
-          <View style={[styles.confidenceBar, { width: `${Math.min(confidence * 100, 100)}%` }]} />
+      {showConfidence && typeof confidence === "number" ? (
+        <View style={styles.confidenceWrap}>
+          <View style={styles.confidenceTrack}>
+            <View style={[styles.confidenceBar, { width: `${Math.min(confidence * 100, 100)}%` }]} />
+          </View>
           <Text style={styles.confidenceText}>{Math.round(confidence * 100)}% match</Text>
         </View>
       ) : null}
@@ -62,7 +85,6 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
     padding: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
     borderWidth: 1,
     borderColor: theme.colors.border,
     ...theme.shadow.card,
@@ -70,46 +92,70 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.92 },
   headerRow: { flexDirection: "row", alignItems: "flex-start" },
   thumbnail: {
-    width: 44,
-    height: 66,
+    width: 48,
+    height: 72,
     borderRadius: theme.radius.sm,
     marginRight: theme.spacing.sm,
     backgroundColor: theme.colors.border,
   },
-  textBlock: { flex: 1, paddingRight: theme.spacing.sm },
+  placeholderThumb: {
+    width: 48,
+    height: 72,
+    borderRadius: theme.radius.sm,
+    marginRight: theme.spacing.sm,
+    backgroundColor: theme.colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderEmoji: { fontSize: 22 },
+  textBlock: { flex: 1, minWidth: 0 },
+  badge: {
+    alignSelf: "flex-start",
+    backgroundColor: theme.colors.successBg,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: theme.radius.pill,
+    marginBottom: 6,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.colors.success,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
   title: {
     fontSize: 17,
     fontWeight: "700",
     color: theme.colors.text,
-    lineHeight: 24,
+    lineHeight: 23,
   },
   author: {
     marginTop: 4,
     fontSize: 14,
     color: theme.colors.textMuted,
+    lineHeight: 20,
   },
   subtitle: {
     marginTop: 6,
     fontSize: 12,
     color: theme.colors.textMuted,
+    lineHeight: 17,
   },
-  confidenceRow: {
-    marginTop: theme.spacing.sm,
-    height: 8,
+  confidenceWrap: { marginTop: theme.spacing.sm },
+  confidenceTrack: {
+    height: 6,
     backgroundColor: theme.colors.border,
     borderRadius: theme.radius.pill,
     overflow: "hidden",
   },
   confidenceBar: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
+    height: "100%",
     backgroundColor: theme.colors.success,
     borderRadius: theme.radius.pill,
   },
   confidenceText: {
-    marginTop: 8,
+    marginTop: 6,
     fontSize: 12,
     fontWeight: "600",
     color: theme.colors.success,

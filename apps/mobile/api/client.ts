@@ -89,6 +89,8 @@ export type ScanResponse = {
 export type LibraryEntry = {
   id: number;
   catalog_book_id?: number | null;
+  title: string;
+  author: string;
   raw_title: string;
   raw_author: string;
   confidence_score: number;

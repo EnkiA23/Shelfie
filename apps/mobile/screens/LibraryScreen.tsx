@@ -7,15 +7,29 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { LibraryEntry, getLibrary } from "../api/client";
 import BookCard from "../components/BookCard";
 import ErrorBanner from "../components/ErrorBanner";
+import ScreenHeader from "../components/ScreenHeader";
 import { theme } from "../theme";
 
+function formatSavedDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
 export default function LibraryScreen() {
+  const insets = useSafeAreaInsets();
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,71 +53,88 @@ export default function LibraryScreen() {
     }, [load]),
   );
 
+  const countLabel = `${entries.length} saved ${entries.length === 1 ? "book" : "books"}`;
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <View style={styles.header}>
-        <Text style={styles.kicker}>Your collection</Text>
-        <Text style={styles.title}>Library</Text>
-        <Text style={styles.subtitle}>{entries.length} saved {entries.length === 1 ? "book" : "books"}</Text>
+      <ScreenHeader kicker="Your collection" title="Library" subtitle={countLabel} />
+
+      <View style={styles.body}>
+        <ErrorBanner message={error} />
+
+        {loading ? (
+          <ActivityIndicator size="large" color={theme.colors.primary} style={styles.loader} />
+        ) : (
+          <FlatList
+            data={entries}
+            keyExtractor={(item) => String(item.id)}
+            contentContainerStyle={[
+              styles.list,
+              { paddingBottom: Math.max(insets.bottom, 16) + 88 },
+            ]}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                tintColor={theme.colors.primary}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  load();
+                }}
+              />
+            }
+            renderItem={({ item }) => {
+              const matched = Boolean(item.catalog_book_id);
+              const readDiffers =
+                matched &&
+                (item.raw_title.trim().toLowerCase() !== item.title.trim().toLowerCase() ||
+                  item.raw_author.trim().toLowerCase() !== item.author.trim().toLowerCase());
+
+              return (
+                <BookCard
+                  title={item.title || item.raw_title || "Untitled"}
+                  author={item.author || item.raw_author || "Author unknown"}
+                  confidence={item.confidence_score}
+                  showConfidence={item.confidence_score > 0}
+                  badge={matched ? "Catalog match" : undefined}
+                  subtitle={
+                    readDiffers
+                      ? `Read as “${item.raw_title}” · ${formatSavedDate(item.created_at)}`
+                      : `Added ${formatSavedDate(item.created_at)}`
+                  }
+                />
+              );
+            }}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyEmoji}>📖</Text>
+                <Text style={styles.emptyTitle}>No books yet</Text>
+                <Text style={styles.emptyBody}>
+                  Scan a shelf, confirm your matches on the review screen, then save them here.
+                </Text>
+              </View>
+            }
+          />
+        )}
       </View>
-
-      <ErrorBanner message={error} />
-
-      {loading ? (
-        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 40 }} />
-      ) : (
-        <FlatList
-          data={entries}
-          keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              tintColor={theme.colors.primary}
-              onRefresh={() => {
-                setRefreshing(true);
-                load();
-              }}
-            />
-          }
-          renderItem={({ item }) => (
-            <BookCard
-              title={item.raw_title}
-              author={item.raw_author || "Unknown author"}
-              confidence={item.confidence_score}
-              subtitle={new Date(item.created_at).toLocaleDateString()}
-            />
-          )}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>📖</Text>
-              <Text style={styles.emptyTitle}>No books yet</Text>
-              <Text style={styles.emptyBody}>
-                Scan a shelf and confirm matches to build your library.
-              </Text>
-            </View>
-          }
-        />
-      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.bg },
-  header: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md, paddingBottom: theme.spacing.sm },
-  kicker: {
-    color: theme.colors.accent,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  title: { fontSize: 32, fontWeight: "800", color: theme.colors.text, marginTop: 4 },
-  subtitle: { marginTop: 4, color: theme.colors.textMuted, fontSize: 14 },
-  list: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xl },
-  empty: { alignItems: "center", paddingTop: 60, paddingHorizontal: theme.spacing.lg },
+  body: { flex: 1, paddingHorizontal: theme.spacing.lg },
+  loader: { marginTop: 40 },
+  list: { paddingTop: theme.spacing.xs },
+  separator: { height: theme.spacing.sm },
+  empty: { alignItems: "center", paddingTop: 48, paddingHorizontal: theme.spacing.md },
   emptyEmoji: { fontSize: 42, marginBottom: theme.spacing.sm },
   emptyTitle: { fontSize: 20, fontWeight: "700", color: theme.colors.text },
-  emptyBody: { textAlign: "center", color: theme.colors.textMuted, marginTop: 8, lineHeight: 22 },
+  emptyBody: {
+    textAlign: "center",
+    color: theme.colors.textMuted,
+    marginTop: 8,
+    lineHeight: 22,
+    fontSize: 15,
+  },
 });
