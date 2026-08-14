@@ -35,7 +35,9 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"No images found in {photo_dir}"))
             return
 
-        mode = "DRY RUN (no API calls)" if settings.VLM_DRY_RUN else f"LIVE ({settings.VLM_PROVIDER})"
+        mode = (
+            "DRY RUN (no API calls)" if settings.VLM_DRY_RUN else f"LIVE ({settings.VLM_PROVIDER})"
+        )
         self.stdout.write(f"Mode: {mode}")
         self.stdout.write(f"Detector backend setting: {settings.DETECTOR_BACKEND}")
         self.stdout.write("")

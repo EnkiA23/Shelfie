@@ -29,7 +29,11 @@ class ScanBookshelfView(APIView):
         daily_cap = getattr(settings, "DAILY_SPEND_CAP_USD", 5.0)
         if daily_spend_total() >= daily_cap:
             return Response(
-                {"detail": "Daily demo budget reached. Try again tomorrow or raise the cap locally."},
+                {
+                    "detail": (
+                        "Daily demo budget reached. Try again tomorrow or raise the cap locally."
+                    )
+                },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
@@ -42,7 +46,9 @@ class ScanBookshelfView(APIView):
 
         upload = request.FILES.get("photo")
         if not upload:
-            return Response({"detail": "photo file is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "photo file is required."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         max_mb = getattr(settings, "MAX_UPLOAD_SIZE_MB", 8)
         if upload.size > max_mb * 1024 * 1024:
@@ -53,11 +59,15 @@ class ScanBookshelfView(APIView):
 
         content_type = (upload.content_type or "").lower()
         if not content_type.startswith("image/"):
-            return Response({"detail": "Upload must be an image."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Upload must be an image."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             image_bytes = upload.read()
-            use_stub = request.query_params.get("stub") == "1" or getattr(settings, "SCAN_USE_STUB", False)
+            use_stub = request.query_params.get("stub") == "1" or getattr(
+                settings, "SCAN_USE_STUB", False
+            )
             result = run_scan_pipeline(image_bytes, use_stub=use_stub)
         except Exception:
             result = {

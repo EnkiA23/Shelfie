@@ -27,9 +27,7 @@ DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 
 # Retrying these is pointless: the request is malformed or the account is wrong,
 # and a second identical call just burns latency and quota.
-NON_RETRYABLE = frozenset(
-    {"vlm_not_configured", "vlm_auth_failed", "vlm_model_unavailable"}
-)
+NON_RETRYABLE = frozenset({"vlm_not_configured", "vlm_auth_failed", "vlm_model_unavailable"})
 
 # Failures where the provider never ran the model, so nothing was charged.
 # Counting these would inflate the daily spend cap and lock us out for free.

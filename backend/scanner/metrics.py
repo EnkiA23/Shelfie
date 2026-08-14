@@ -94,9 +94,9 @@ def daily_vlm_calls_total() -> int:
     from scanner.models import ScanLog
 
     today = timezone.now().date()
-    total = ScanLog.objects.filter(created_at__date=today).aggregate(
-        total=Sum("spines_detected")
-    )["total"]
+    total = ScanLog.objects.filter(created_at__date=today).aggregate(total=Sum("spines_detected"))[
+        "total"
+    ]
     return int(total or 0)
 
 
@@ -107,7 +107,7 @@ def daily_spend_total() -> float:
     from scanner.models import ScanLog
 
     today = timezone.now().date()
-    total = ScanLog.objects.filter(created_at__date=today).aggregate(
-        total=Sum("est_cost_usd")
-    )["total"]
+    total = ScanLog.objects.filter(created_at__date=today).aggregate(total=Sum("est_cost_usd"))[
+        "total"
+    ]
     return float(total or 0.0)

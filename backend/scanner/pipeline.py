@@ -15,6 +15,7 @@ from scanner.metrics import MetricsTracker, StageTimer, daily_vlm_calls_total, e
 from scanner.models import CatalogBook
 from scanner.vlm import UNBILLED_FAILURES, VlmResult, extract_text_from_crop, is_configured
 
+
 def _confidence_threshold() -> float:
     return float(getattr(settings, "CONFIDENCE_THRESHOLD", 0.85))
 
@@ -129,16 +130,16 @@ def _safe_extract(crop: Image.Image) -> VlmResult | None:
 def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str, Any]:
     metrics = MetricsTracker()
     catalog = _catalog_to_match_books()
-    db_id_map = {
-        row.external_id: row.id for row in CatalogBook.objects.only("id", "external_id")
-    }
+    db_id_map = {row.external_id: row.id for row in CatalogBook.objects.only("id", "external_id")}
 
     if use_stub:
         stub_items = [
             _build_item(
                 extracted_title="The Great Gatsby",
                 extracted_author="F. Scott Fitzgerald",
-                candidates=match_against_catalog("The Great Gatsby", "F. Scott Fitzgerald", catalog),
+                candidates=match_against_catalog(
+                    "The Great Gatsby", "F. Scott Fitzgerald", catalog
+                ),
                 db_id_map=db_id_map,
                 crop_index=0,
                 bbox=None,
@@ -209,7 +210,9 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
     with StageTimer(metrics, "stage2_ms"):
         extractions = _extract_crops(crops)
 
-        for index, (bbox, crop, extraction) in enumerate(zip(selected_boxes, crops, extractions)):
+        for index, (bbox, crop, extraction) in enumerate(
+            zip(selected_boxes, crops, extractions, strict=True)
+        ):
             item_warnings: list[str] = []
             extracted_title = ""
             extracted_author = ""

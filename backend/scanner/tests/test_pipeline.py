@@ -122,8 +122,9 @@ def test_reported_tokens_drive_the_cost_estimate(catalog, settings, monkeypatch)
     monkeypatch.setattr(
         pipeline_module,
         "extract_text_from_crop",
-        lambda _crop: VlmResult(title="Beloved", author="Toni Morrison", input_tokens=1000,
-                                output_tokens=100),
+        lambda _crop: VlmResult(
+            title="Beloved", author="Toni Morrison", input_tokens=1000, output_tokens=100
+        ),
     )
 
     result = run_scan_pipeline(make_image_bytes())

@@ -137,7 +137,8 @@ def _detect_with_opencv(image: Image.Image) -> list[BoundingBox]:
     separators.append(width)
 
     boxes: list[BoundingBox] = []
-    for left, right in zip(separators, separators[1:]):
+    # Pairwise over separators, so the offset slice is one shorter by design.
+    for left, right in zip(separators, separators[1:], strict=False):
         spine_width = right - left
         if spine_width < min_spine_width:
             continue

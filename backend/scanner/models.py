@@ -45,3 +45,6 @@ class ScanLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.spines_matched}/{self.spines_detected} matched at {self.created_at:%Y-%m-%d}"

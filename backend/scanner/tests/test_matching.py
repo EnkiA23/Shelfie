@@ -1,7 +1,5 @@
 """Tests for catalog fuzzy matching edge cases."""
 
-from pathlib import Path
-
 import pytest
 
 from scanner.matching import (
@@ -16,7 +14,12 @@ from scanner.matching import (
 def catalog() -> list[CatalogBook]:
     return [
         CatalogBook(1, "Pride and Prejudice", "Jane Austen", edition_info="1813 first edition"),
-        CatalogBook(2, "Pride and Prejudice", "Jane Austen", edition_info="Annotated Norton Critical Edition"),
+        CatalogBook(
+            2,
+            "Pride and Prejudice",
+            "Jane Austen",
+            edition_info="Annotated Norton Critical Edition",
+        ),
         CatalogBook(
             3,
             "Harry Potter and the Sorcerer's Stone",
@@ -33,7 +36,9 @@ def catalog() -> list[CatalogBook]:
         ),
         CatalogBook(5, "The Road", "Cormac McCarthy"),
         CatalogBook(6, "The Road", "Jack London"),
-        CatalogBook(7, "The Lord of the Rings", "J.R.R. Tolkien", ("LOTR omnibus",), "Omnibus one-volume"),
+        CatalogBook(
+            7, "The Lord of the Rings", "J.R.R. Tolkien", ("LOTR omnibus",), "Omnibus one-volume"
+        ),
         CatalogBook(8, "The Fellowship of the Ring", "J.R.R. Tolkien", edition_info="Volume 1"),
         CatalogBook(9, "The Two Towers", "J.R.R. Tolkien", edition_info="Volume 2"),
         CatalogBook(10, "The Return of the King", "J.R.R. Tolkien", edition_info="Volume 3"),
@@ -41,7 +46,9 @@ def catalog() -> list[CatalogBook]:
         CatalogBook(12, "Great", "Sara Benincasa"),
         CatalogBook(13, "The Hobbit", "J.R.R. Tolkien"),
         CatalogBook(14, "The Hobbit", "Tolkien, J.R.R.", edition_info="Deluxe reprint"),
-        CatalogBook(15, "The Hobbit", "John Ronald Reuel Tolkien", edition_info="Illustrated edition"),
+        CatalogBook(
+            15, "The Hobbit", "John Ronald Reuel Tolkien", edition_info="Illustrated edition"
+        ),
     ]
 
 
@@ -56,10 +63,14 @@ def test_two_editions_same_book(catalog):
 
 def test_us_uk_regional_titles(catalog):
     us = match_against_catalog("Harry Potter Sorcerer's Stone", "J.K. Rowling", catalog, top_n=1)[0]
-    uk = match_against_catalog("Harry Potter Philosopher's Stone", "Joanne Rowling", catalog, top_n=1)[0]
+    uk = match_against_catalog(
+        "Harry Potter Philosopher's Stone", "Joanne Rowling", catalog, top_n=1
+    )[0]
     assert us.score >= 0.85
     assert uk.score >= 0.85
-    assert "Sorcerer" in us.catalog_book.title or "Philosopher" in us.catalog_book.alternate_titles[0]
+    assert (
+        "Sorcerer" in us.catalog_book.title or "Philosopher" in us.catalog_book.alternate_titles[0]
+    )
     assert "Philosopher" in uk.catalog_book.title
 
 

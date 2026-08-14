@@ -67,7 +67,11 @@ def build_shelf(path: Path, *, books: int, blur: bool = False, seed: int = 7) ->
         if x + spine_width > width - 40:
             break
         top = 40 + random.randint(0, 20)
-        spine = Image.new("RGB", (spine_width, shelf_height - top + 40), SPINE_COLORS[index % len(SPINE_COLORS)])
+        spine = Image.new(
+            "RGB",
+            (spine_width, shelf_height - top + 40),
+            SPINE_COLORS[index % len(SPINE_COLORS)],
+        )
         title, author = TITLES[index % len(TITLES)]
         _draw_vertical_text(spine, title, 22, (240, 234, 222))
         _draw_vertical_text(spine, author, 14, (215, 205, 190))

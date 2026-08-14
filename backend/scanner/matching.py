@@ -8,8 +8,8 @@ partial/substring signals, and author agreement modifiers.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from rapidfuzz import fuzz
 
@@ -74,7 +74,8 @@ def author_match_modifier(raw_author: str, catalog_author: str) -> float:
     overlap = raw_tokens & cat_tokens
     if overlap:
         return 0.08
-    if _author_last_name(raw_author) and _author_last_name(raw_author) == _author_last_name(catalog_author):
+    raw_last_name = _author_last_name(raw_author)
+    if raw_last_name and raw_last_name == _author_last_name(catalog_author):
         return 0.06
     if raw_tokens.isdisjoint(cat_tokens):
         return -0.20
@@ -127,5 +128,3 @@ def match_against_catalog(
     scored.sort(key=lambda item: item.score, reverse=True)
     filtered = [item for item in scored if item.score >= min_score]
     return filtered[:top_n]
-
-

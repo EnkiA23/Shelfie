@@ -93,7 +93,9 @@ class Command(BaseCommand):
             )
             return
 
-        self.stdout.write(self.style.ERROR(f"FAILED after {elapsed_ms:.0f} ms: {result.failure_code}"))
+        self.stdout.write(
+            self.style.ERROR(f"FAILED after {elapsed_ms:.0f} ms: {result.failure_code}")
+        )
         remedy = REMEDIES.get(result.failure_code)
         if remedy:
             self.stdout.write(f"  -> {remedy}")
