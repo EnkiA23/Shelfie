@@ -1,0 +1,25 @@
+{
+  "name": "@shelfie/source",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "backend:dev": "cd apps/backend && python manage.py runserver 0.0.0.0:8000",
+    "backend:test": "cd apps/backend && python -m pytest scanner/tests -q",
+    "backend:lint": "cd apps/backend && python -m ruff check .",
+    "backend:format": "cd apps/backend && python -m ruff format .",
+    "backend:check": "cd apps/backend && python manage.py check --fail-level WARNING",
+    "backend:check-vlm": "cd apps/backend && python manage.py check_vlm",
+    "backend:load-catalog": "cd apps/backend && python manage.py load_catalog",
+    "backend:benchmark": "cd apps/backend && python manage.py benchmark_scan --runs 2",
+    "mobile:dev": "cd apps/mobile && npx expo start",
+    "mobile:typecheck": "cd apps/mobile && npx tsc --noEmit",
+    "mobile:install": "cd apps/mobile && npm ci",
+    "ci:backend": "nx run backend:test && nx run backend:lint",
+    "ci:mobile": "nx run mobile:typecheck",
+    "ci:secrets": "bash scripts/check_no_secrets.sh"
+  },
+  "devDependencies": {
+    "nx": "^20.8.4"
+  }
+}
