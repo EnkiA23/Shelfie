@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ScanResponse, scanBookshelf } from "../api/client";
 import AppButton from "../components/AppButton";
 import ErrorBanner from "../components/ErrorBanner";
+import { primaryWarning } from "../lib/warnings";
 import { theme } from "../theme";
 
 type Props = {
@@ -59,15 +60,19 @@ export default function CaptureScreen({ onScanComplete }: Props) {
     setNotice("");
     try {
       const response = await scanBookshelf(uri, useStub);
-      const warnings = response.metrics.warnings ?? [];
+      const itemWarnings = [...response.high_confidence, ...response.needs_review].flatMap(
+        (item) => item.warnings ?? [],
+      );
+      const warning = primaryWarning([...(response.metrics.warnings ?? []), ...itemWarnings]);
 
-      if (warnings.includes("zero_detections_fallback_full_image")) {
-        setNotice("No spines detected — we scanned the full photo instead.");
-      } else if (warnings.includes("daily_vlm_cap_reached")) {
-        setError("Daily vision API limit reached. Try again tomorrow.");
-        return;
-      } else if (warnings.some((w) => w.startsWith("vlm_"))) {
-        setNotice("Some spines could not be read. Check the review screen.");
+      if (warning?.severity === "error") {
+        setError(warning.message);
+        // Nothing usable came back, so don't push an empty review screen on top.
+        if (response.high_confidence.length === 0 && response.needs_review.length === 0) {
+          return;
+        }
+      } else if (warning) {
+        setNotice(warning.message);
       }
 
       onScanComplete(response);

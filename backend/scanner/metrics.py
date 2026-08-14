@@ -51,10 +51,28 @@ class StageTimer:
         setattr(self.metrics, self.attr, elapsed_ms)
 
 
-def estimate_vlm_cost(num_calls: int, *, input_tokens: int = 900, output_tokens: int = 60) -> float:
+# Fallback token counts, used only when a provider does not report usage.
+# Measured against Gemini Flash-Lite on a 512px spine crop: ~1070 in, ~16 out.
+ASSUMED_INPUT_TOKENS_PER_CALL = 1070
+ASSUMED_OUTPUT_TOKENS_PER_CALL = 20
+
+
+def estimate_vlm_cost(
+    unmetered_calls: int = 0,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+) -> float:
+    """Cost of a scan in USD.
+
+    `input_tokens`/`output_tokens` are the provider's own reported totals and are
+    billed exactly. `unmetered_calls` covers billable calls where the provider did
+    not report usage, and is priced with the measured per-call assumptions above.
+    Calls the provider never served — a rejected key, a retired model — are
+    neither, and must not be passed here at all.
+    """
     provider = getattr(settings, "VLM_PROVIDER", "gemini").lower()
     if provider == "gemini":
-        # Gemini Flash free/low tier — approximate paid rate for cap tracking
         input_rate = 0.10 / 1_000_000
         output_rate = 0.40 / 1_000_000
     elif provider == "anthropic":
@@ -63,8 +81,10 @@ def estimate_vlm_cost(num_calls: int, *, input_tokens: int = 900, output_tokens:
     else:
         input_rate = 0.15 / 1_000_000
         output_rate = 0.60 / 1_000_000
-    per_call = (input_tokens * input_rate) + (output_tokens * output_rate)
-    return per_call * num_calls
+
+    total_input = input_tokens + (unmetered_calls * ASSUMED_INPUT_TOKENS_PER_CALL)
+    total_output = output_tokens + (unmetered_calls * ASSUMED_OUTPUT_TOKENS_PER_CALL)
+    return (total_input * input_rate) + (total_output * output_rate)
 
 
 def daily_vlm_calls_total() -> int:

@@ -4,6 +4,7 @@ The brief requires that a detector crash, a VLM timeout, malformed model JSON,
 or zero detections never crash the app or return an empty screen.
 """
 
+import time
 from io import BytesIO
 
 import pytest
@@ -13,6 +14,7 @@ from PIL import Image
 from scanner import pipeline as pipeline_module
 from scanner.models import CatalogBook, LibraryEntry
 from scanner.pipeline import run_scan_pipeline
+from scanner.vlm import VlmResult
 
 AUTH = {"HTTP_AUTHORIZATION": "Bearer dev-token"}
 
@@ -67,13 +69,111 @@ def test_detector_exception_is_contained(catalog, settings, monkeypatch):
 
 def test_vlm_timeout_routes_item_to_review(catalog, settings, monkeypatch):
     settings.VLM_DRY_RUN = False
-    monkeypatch.setattr(pipeline_module, "extract_text_from_crop", lambda _crop: None)
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_text_from_crop",
+        lambda _crop: VlmResult(failure_code="vlm_timeout"),
+    )
 
     result = run_scan_pipeline(make_image_bytes())
 
     assert result["high_confidence"] == []
     assert result["needs_review"], "a failed read must still surface to the user"
-    assert "vlm_timeout_or_malformed" in result["needs_review"][0]["warnings"]
+    assert "vlm_timeout" in result["needs_review"][0]["warnings"]
+
+
+@pytest.mark.parametrize(
+    "failure_code",
+    ["vlm_auth_failed", "vlm_model_unavailable", "vlm_rate_limited", "vlm_unreadable_response"],
+)
+def test_each_vlm_failure_keeps_its_own_code(catalog, settings, monkeypatch, failure_code):
+    """A bad key, a retired model and a broken answer need three different fixes,
+    so they must not collapse into one generic warning."""
+    settings.VLM_DRY_RUN = False
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_text_from_crop",
+        lambda _crop: VlmResult(failure_code=failure_code),
+    )
+
+    result = run_scan_pipeline(make_image_bytes())
+
+    assert result["high_confidence"] == []
+    assert failure_code in result["needs_review"][0]["warnings"]
+
+
+def test_key_level_failures_are_promoted_to_scan_metrics(catalog, settings, monkeypatch):
+    settings.VLM_DRY_RUN = False
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_text_from_crop",
+        lambda _crop: VlmResult(failure_code="vlm_auth_failed"),
+    )
+
+    result = run_scan_pipeline(make_image_bytes())
+
+    assert "vlm_auth_failed" in result["metrics"]["warnings"], (
+        "a whole-scan problem belongs in one banner, not repeated on every row"
+    )
+
+
+def test_reported_tokens_drive_the_cost_estimate(catalog, settings, monkeypatch):
+    settings.VLM_DRY_RUN = False
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_text_from_crop",
+        lambda _crop: VlmResult(title="Beloved", author="Toni Morrison", input_tokens=1000,
+                                output_tokens=100),
+    )
+
+    result = run_scan_pipeline(make_image_bytes())
+
+    expected = (1000 * 0.10 + 100 * 0.40) / 1_000_000
+    assert result["metrics"]["est_cost_usd"] == pytest.approx(expected, abs=1e-9)
+
+
+def test_parallel_extraction_keeps_crops_in_order(catalog, settings, monkeypatch):
+    """Crops are read on a thread pool, so results must be zipped back to the box
+    they came from — otherwise a title lands on the wrong spine's thumbnail."""
+    settings.VLM_DRY_RUN = False
+    settings.VLM_CONCURRENCY = 4
+    settings.MAX_VLM_CALLS_PER_SCAN = 6
+
+    from scanner.detector import BoundingBox
+
+    # Distinct widths so each crop is identifiable once it reaches the worker.
+    boxes = [BoundingBox(0, 0, (i + 1) * 10, 100, 0.9) for i in range(6)]
+    monkeypatch.setattr(pipeline_module, "detect_spines", lambda _bytes: boxes)
+
+    # Stagger the sleeps so the pool deliberately finishes out of submission order.
+    def extract(crop):
+        index = crop.size[0] // 10 - 1
+        time.sleep(0.02 * (6 - index))
+        return VlmResult(title=f"Title {index}", author="A")
+
+    monkeypatch.setattr(pipeline_module, "extract_text_from_crop", extract)
+
+    result = run_scan_pipeline(make_image_bytes(width=120, height=100))
+    items = sorted(
+        [*result["high_confidence"], *result["needs_review"]], key=lambda i: i["crop_index"]
+    )
+
+    assert [item["extracted_title"] for item in items] == [f"Title {i}" for i in range(6)]
+
+
+def test_calls_the_provider_never_served_are_not_billed(catalog, settings, monkeypatch):
+    """A retired model returns 404 before inference. Charging for it would burn the
+    daily spend cap on requests that cost nothing."""
+    settings.VLM_DRY_RUN = False
+    monkeypatch.setattr(
+        pipeline_module,
+        "extract_text_from_crop",
+        lambda _crop: VlmResult(failure_code="vlm_model_unavailable"),
+    )
+
+    result = run_scan_pipeline(make_image_bytes())
+
+    assert result["metrics"]["est_cost_usd"] == 0.0
 
 
 def test_vlm_exception_does_not_crash_scan(catalog, settings, monkeypatch):

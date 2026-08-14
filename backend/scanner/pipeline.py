@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Any
 
@@ -12,7 +13,7 @@ from scanner.matching import CatalogBook as MatchBook
 from scanner.matching import match_against_catalog
 from scanner.metrics import MetricsTracker, StageTimer, daily_vlm_calls_total, estimate_vlm_cost
 from scanner.models import CatalogBook
-from scanner.vlm import extract_text_from_crop, is_configured
+from scanner.vlm import UNBILLED_FAILURES, VlmResult, extract_text_from_crop, is_configured
 
 def _confidence_threshold() -> float:
     return float(getattr(settings, "CONFIDENCE_THRESHOLD", 0.85))
@@ -98,6 +99,33 @@ def _build_item(
     return item
 
 
+def _extract_crops(crops: list[Image.Image]) -> list[VlmResult | None]:
+    """Read every crop, in parallel, preserving order.
+
+    Stage 2 is network-bound: measured sequentially, ten crops took ~16 s because
+    each ~1.4 s round trip waited for the last. A small thread pool collapses that
+    to roughly one round trip. The pool is bounded rather than unbounded so a
+    wide shelf cannot open thirty sockets at once and trip provider rate limits.
+    """
+    if not crops:
+        return []
+
+    concurrency = max(1, int(getattr(settings, "VLM_CONCURRENCY", 5)))
+    if concurrency == 1 or len(crops) == 1:
+        return [_safe_extract(crop) for crop in crops]
+
+    with ThreadPoolExecutor(max_workers=min(concurrency, len(crops))) as pool:
+        return list(pool.map(_safe_extract, crops))
+
+
+def _safe_extract(crop: Image.Image) -> VlmResult | None:
+    """A single crop failing must never take down the other nine."""
+    try:
+        return extract_text_from_crop(crop)
+    except Exception:
+        return None
+
+
 def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str, Any]:
     metrics = MetricsTracker()
     catalog = _catalog_to_match_books()
@@ -172,25 +200,33 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
     threshold = _confidence_threshold()
     high_confidence: list[dict[str, Any]] = []
     needs_review: list[dict[str, Any]] = []
-    vlm_calls = 0
+    unmetered_calls = 0
+    input_tokens = 0
+    output_tokens = 0
+
+    crops = [bbox.crop(image) for bbox in selected_boxes]
 
     with StageTimer(metrics, "stage2_ms"):
-        for index, bbox in enumerate(selected_boxes):
+        extractions = _extract_crops(crops)
+
+        for index, (bbox, crop, extraction) in enumerate(zip(selected_boxes, crops, extractions)):
             item_warnings: list[str] = []
-            crop = bbox.crop(image)
             extracted_title = ""
             extracted_author = ""
 
-            try:
-                extraction = extract_text_from_crop(crop)
-                vlm_calls += 1
-                if extraction is None:
-                    item_warnings.append("vlm_timeout_or_malformed")
-                else:
-                    extracted_title = extraction.get("extracted_title", "")
-                    extracted_author = extraction.get("extracted_author", "")
-            except Exception:
+            if extraction is None:
                 item_warnings.append("vlm_error")
+            else:
+                if extraction.input_tokens or extraction.output_tokens:
+                    input_tokens += extraction.input_tokens
+                    output_tokens += extraction.output_tokens
+                elif extraction.failure_code not in UNBILLED_FAILURES:
+                    unmetered_calls += 1
+                if extraction.ok:
+                    extracted_title = extraction.title
+                    extracted_author = extraction.author
+                else:
+                    item_warnings.append(extraction.failure_code)
 
             try:
                 candidates = match_against_catalog(extracted_title, extracted_author, catalog)
@@ -214,9 +250,23 @@ def run_scan_pipeline(image_bytes: bytes, *, use_stub: bool = False) -> dict[str
             else:
                 needs_review.append(item)
 
-    metrics.est_cost_usd = 0.0 if dry_run else estimate_vlm_cost(vlm_calls)
+    metrics.est_cost_usd = (
+        0.0
+        if dry_run
+        else estimate_vlm_cost(
+            unmetered_calls, input_tokens=input_tokens, output_tokens=output_tokens
+        )
+    )
     metrics.spines_matched = len(high_confidence)
     metrics.vlm_provider = "dry_run" if dry_run else getattr(settings, "VLM_PROVIDER", "gemini")
+
+    # A key or model problem repeats on every crop. Surface it once at scan level so
+    # the app can show one actionable banner instead of ten identical row warnings.
+    for code in ("vlm_not_configured", "vlm_auth_failed", "vlm_model_unavailable"):
+        if code not in metrics.warnings and any(
+            code in item["warnings"] for item in (*high_confidence, *needs_review)
+        ):
+            metrics.warnings.append(code)
 
     return {
         "high_confidence": high_confidence,

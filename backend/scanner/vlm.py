@@ -1,8 +1,17 @@
+"""Stage 2: hosted vision-language extraction of title/author from a spine crop.
+
+Every call returns a `VlmResult` rather than a bare dict-or-None. A silent `None`
+hides the difference between "the key is wrong", "the model was retired" and "the
+model answered but the JSON was broken" — three failures with three different
+fixes, all of which we hit during development.
+"""
+
 from __future__ import annotations
 
 import base64
 import json
 import re
+from dataclasses import dataclass
 from io import BytesIO
 
 from django.conf import settings
@@ -14,9 +23,49 @@ EXTRACTION_PROMPT = (
     "Use empty strings if unreadable."
 )
 
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 
-def _dry_run_response() -> dict[str, str]:
-    return {"extracted_title": "The Great Gatsby", "extracted_author": "F. Scott Fitzgerald"}
+# Retrying these is pointless: the request is malformed or the account is wrong,
+# and a second identical call just burns latency and quota.
+NON_RETRYABLE = frozenset(
+    {"vlm_not_configured", "vlm_auth_failed", "vlm_model_unavailable"}
+)
+
+# Failures where the provider never ran the model, so nothing was charged.
+# Counting these would inflate the daily spend cap and lock us out for free.
+UNBILLED_FAILURES = frozenset(
+    {
+        "vlm_not_configured",
+        "vlm_auth_failed",
+        "vlm_model_unavailable",
+        "vlm_rate_limited",
+        "vlm_timeout",
+    }
+)
+
+
+@dataclass(frozen=True)
+class VlmResult:
+    """Outcome of one crop extraction, successful or not.
+
+    `input_tokens`/`output_tokens` come from the provider's own usage accounting
+    when it reports them, so the daily spend cap tracks real billing rather than
+    a hardcoded guess.
+    """
+
+    title: str = ""
+    author: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    failure_code: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.failure_code is None
+
+
+def _dry_run_result() -> VlmResult:
+    return VlmResult(title="The Great Gatsby", author="F. Scott Fitzgerald")
 
 
 def _prepare_crop(crop: Image.Image) -> Image.Image:
@@ -35,23 +84,37 @@ def _image_to_base64(image: Image.Image) -> str:
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def _parse_extraction_payload(raw: str) -> dict[str, str] | None:
+def _result_from_payload(raw: str, input_tokens: int, output_tokens: int) -> VlmResult:
+    """Turn the model's text answer into a result, tolerating markdown fences.
+
+    Tokens are attached even on a parse failure — the provider bills for a bad
+    answer exactly like a good one, so the cap has to see it either way.
+    """
+    unreadable = VlmResult(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        failure_code="vlm_unreadable_response",
+    )
+
     text = raw.strip()
     if not text:
-        return None
+        return unreadable
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        return None
+        return unreadable
     if not isinstance(parsed, dict):
-        return None
-    return {
-        "extracted_title": str(parsed.get("extracted_title", "")).strip(),
-        "extracted_author": str(parsed.get("extracted_author", "")).strip(),
-    }
+        return unreadable
+
+    return VlmResult(
+        title=str(parsed.get("extracted_title", "")).strip(),
+        author=str(parsed.get("extracted_author", "")).strip(),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
 
 
 def api_key_for_provider() -> str:
@@ -71,12 +134,20 @@ def is_configured() -> bool:
     return bool(api_key_for_provider())
 
 
-def _call_provider(crop: Image.Image, timeout: int) -> dict[str, str] | None:
+def _http_failure_code(status: int) -> str:
+    if status in (401, 403):
+        return "vlm_auth_failed"
+    if status == 404:
+        return "vlm_model_unavailable"
+    if status == 429:
+        return "vlm_rate_limited"
+    return "vlm_provider_error"
+
+
+def _call_provider(crop: Image.Image, timeout: int) -> VlmResult:
     provider = getattr(settings, "VLM_PROVIDER", "gemini").lower()
     prepared = _prepare_crop(crop)
 
-    if provider == "gemini":
-        return _call_gemini(prepared, timeout)
     if provider == "anthropic":
         return _call_anthropic(prepared, timeout)
     if provider == "openai":
@@ -84,32 +155,37 @@ def _call_provider(crop: Image.Image, timeout: int) -> dict[str, str] | None:
     return _call_gemini(prepared, timeout)
 
 
-def extract_text_from_crop(crop: Image.Image) -> dict[str, str] | None:
+def extract_text_from_crop(crop: Image.Image) -> VlmResult:
     if getattr(settings, "VLM_DRY_RUN", False):
-        return _dry_run_response()
+        return _dry_run_result()
+    if not api_key_for_provider():
+        return VlmResult(failure_code="vlm_not_configured")
 
     timeout = getattr(settings, "VLM_TIMEOUT_SECONDS", 15)
     max_retries = max(0, getattr(settings, "VLM_MAX_RETRIES", 1))
 
+    result = VlmResult(failure_code="vlm_provider_error")
     for _attempt in range(max_retries + 1):
         try:
             result = _call_provider(crop, timeout)
-            if result is not None:
-                return result
-        except Exception:
-            continue
-    return None
+        except (TimeoutError, OSError):
+            result = VlmResult(failure_code="vlm_timeout")
+        except Exception:  # noqa: BLE001 - a provider bug must not kill the scan
+            result = VlmResult(failure_code="vlm_provider_error")
+        if result.ok or result.failure_code in NON_RETRYABLE:
+            return result
+    return result
 
 
-def _call_gemini(crop: Image.Image, timeout: int) -> dict[str, str] | None:
+def _call_gemini(crop: Image.Image, timeout: int) -> VlmResult:
     import urllib.error
     import urllib.request
 
     api_key = getattr(settings, "GEMINI_API_KEY", "")
     if not api_key:
-        return None
+        return VlmResult(failure_code="vlm_not_configured")
 
-    model = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")
+    model = getattr(settings, "GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     payload = {
         "contents": [
             {
@@ -143,24 +219,30 @@ def _call_gemini(crop: Image.Image, timeout: int) -> dict[str, str] | None:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return None
+    except urllib.error.HTTPError as exc:
+        return VlmResult(failure_code=_http_failure_code(exc.code))
+    except (urllib.error.URLError, TimeoutError):
+        return VlmResult(failure_code="vlm_timeout")
+    except json.JSONDecodeError:
+        return VlmResult(failure_code="vlm_unreadable_response")
+
+    usage = body.get("usageMetadata") or {}
+    input_tokens = int(usage.get("promptTokenCount") or 0)
+    output_tokens = int(usage.get("candidatesTokenCount") or 0)
 
     candidates = body.get("candidates") or []
-    if not candidates:
-        return None
-    parts = candidates[0].get("content", {}).get("parts") or []
+    parts = candidates[0].get("content", {}).get("parts") or [] if candidates else []
     text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
-    return _parse_extraction_payload(text)
+    return _result_from_payload(text, input_tokens, output_tokens)
 
 
-def _call_openai(crop: Image.Image, timeout: int) -> dict[str, str] | None:
+def _call_openai(crop: Image.Image, timeout: int) -> VlmResult:
     import urllib.error
     import urllib.request
 
     api_key = getattr(settings, "OPENAI_API_KEY", "")
     if not api_key:
-        return None
+        return VlmResult(failure_code="vlm_not_configured")
 
     payload = {
         "model": "gpt-4o-mini",
@@ -191,20 +273,32 @@ def _call_openai(crop: Image.Image, timeout: int) -> dict[str, str] | None:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return None
+    except urllib.error.HTTPError as exc:
+        return VlmResult(failure_code=_http_failure_code(exc.code))
+    except (urllib.error.URLError, TimeoutError):
+        return VlmResult(failure_code="vlm_timeout")
+    except json.JSONDecodeError:
+        return VlmResult(failure_code="vlm_unreadable_response")
 
-    content = body["choices"][0]["message"]["content"]
-    return _parse_extraction_payload(content)
+    usage = body.get("usage") or {}
+    choices = body.get("choices") or []
+    if not choices:
+        return VlmResult(failure_code="vlm_unreadable_response")
+    content = choices[0].get("message", {}).get("content", "")
+    return _result_from_payload(
+        content,
+        int(usage.get("prompt_tokens") or 0),
+        int(usage.get("completion_tokens") or 0),
+    )
 
 
-def _call_anthropic(crop: Image.Image, timeout: int) -> dict[str, str] | None:
+def _call_anthropic(crop: Image.Image, timeout: int) -> VlmResult:
     import urllib.error
     import urllib.request
 
     api_key = getattr(settings, "ANTHROPIC_API_KEY", "")
     if not api_key:
-        return None
+        return VlmResult(failure_code="vlm_not_configured")
 
     payload = {
         "model": "claude-3-5-sonnet-20241022",
@@ -239,12 +333,21 @@ def _call_anthropic(crop: Image.Image, timeout: int) -> dict[str, str] | None:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return None
+    except urllib.error.HTTPError as exc:
+        return VlmResult(failure_code=_http_failure_code(exc.code))
+    except (urllib.error.URLError, TimeoutError):
+        return VlmResult(failure_code="vlm_timeout")
+    except json.JSONDecodeError:
+        return VlmResult(failure_code="vlm_unreadable_response")
 
+    usage = body.get("usage") or {}
     text_blocks = [
         block.get("text", "") for block in body.get("content", []) if block.get("type") == "text"
     ]
     if not text_blocks:
-        return None
-    return _parse_extraction_payload(text_blocks[0])
+        return VlmResult(failure_code="vlm_unreadable_response")
+    return _result_from_payload(
+        text_blocks[0],
+        int(usage.get("input_tokens") or 0),
+        int(usage.get("output_tokens") or 0),
+    )
