@@ -105,7 +105,7 @@ CORS_ALLOWED_ORIGINS = env.list(
 REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
     "DEFAULT_THROTTLE_RATES": {
-        "scan": env("SCAN_RATE_LIMIT", default="10/min"),
+        "scan": env("SCAN_RATE_LIMIT", default="20/min"),
         "library_write": "30/min",
         "catalog_search": "60/min",
     },

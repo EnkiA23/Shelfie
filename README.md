@@ -372,7 +372,7 @@ so there are two layers: stop the request volume, and cap what any single scan c
 | Control | Default | Enforced in |
 |---|---|---|
 | Shared bearer token on every endpoint | `dev-token` | `permissions.py` |
-| Scan throttle | 10/min | DRF `ScopedRateThrottle` |
+| Scan throttle | 20/min | DRF `ScopedRateThrottle` |
 | Library write / catalog search throttle | 30/min, 60/min | DRF |
 | Max VLM calls per scan | 10 | `pipeline.py` |
 | Max VLM calls per day | 50 | `pipeline.py` + `views.py` |
