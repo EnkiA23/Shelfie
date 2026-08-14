@@ -1,0 +1,82 @@
+name: PR Validation
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Monorepo validation
+    runs-on: ubuntu-latest
+
+    env:
+      VLM_DRY_RUN: "True"
+      DETECTOR_BACKEND: opencv
+      APP_SHARED_TOKEN: dev-token
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/backend/requirements*.txt
+
+      - name: Install backend dependencies
+        working-directory: apps/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Backend lint
+        run: nx run backend:lint
+
+      - name: Backend format check
+        run: nx run backend:format-check
+
+      - name: Django system checks
+        run: nx run backend:check
+
+      - name: Fail if a model change has no migration
+        run: nx run backend:migrations-check
+
+      - name: Backend tests
+        run: nx run backend:test
+
+      - name: Install mobile dependencies
+        run: nx run mobile:install
+
+      - name: Mobile typecheck
+        run: nx run mobile:typecheck
+
+      - name: Guard against tracked credentials
+        run: ./scripts/check_no_secrets.sh
+
+      - name: Scan history with gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
