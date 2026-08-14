@@ -494,3 +494,7 @@ Linux refuses to execute, and Dependabot opens grouped weekly dependency PRs.
 5. Persist `source_image` per library entry so the library can show the original crop.
 
 See [`AI_USAGE.md`](AI_USAGE.md) for how AI tools were used to build this.
+
+---
+
+Copyright (c) 2026 EnkiA23. All rights reserved. See [`LICENSE`](LICENSE).
