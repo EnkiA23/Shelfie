@@ -150,7 +150,7 @@ actual problem. The reasoning is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.m
 
 | Document | Contents |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Monorepo, controller/service layering, monolith-vs-microservices |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | One repo not two, controller/service layering, monolith-vs-microservices |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every environment failure we hit, and the fix |
 | [`AGENTS.md`](AGENTS.md) | Conventions any change must follow |
 | [`AI_USAGE.md`](AI_USAGE.md) | Which AI pass wrote which file |

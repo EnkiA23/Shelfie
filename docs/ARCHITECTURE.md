@@ -4,7 +4,7 @@ Structural decisions, and the reasoning I would give if asked to defend them liv
 
 ---
 
-## 1. Monorepo, not two repositories
+## 1. One repository, not two
 
 `backend/` and `app/` are top-level folders in one repository with one root `README.md`.
 
