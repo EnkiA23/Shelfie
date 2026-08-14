@@ -500,7 +500,7 @@ real key filled in. Run it locally the same way CI does:
 ```
 
 `.gitattributes` pins shell scripts to LF so a Windows checkout cannot commit a CRLF shebang that
-Linux refuses to execute, and Dependabot opens grouped weekly dependency PRs.
+Linux refuses to execute.
 
 ---
 
