@@ -30,7 +30,14 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   return (
     <View style={styles.tabIconWrap}>
       <Text style={[styles.tabIcon, focused && styles.tabIconFocused]}>{icons[label] ?? "•"}</Text>
-      <Text style={[styles.tabLabel, focused && styles.tabLabelFocused]}>{label}</Text>
+      <Text
+        style={[styles.tabLabel, focused && styles.tabLabelFocused]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -110,6 +117,6 @@ const styles = StyleSheet.create({
   tabIconWrap: { alignItems: "center", gap: 4 },
   tabIcon: { fontSize: 22, opacity: 0.55 },
   tabIconFocused: { opacity: 1 },
-  tabLabel: { fontSize: 12, color: theme.colors.textMuted, fontWeight: "600" },
+  tabLabel: { fontSize: 11, color: theme.colors.textMuted, fontWeight: "600" },
   tabLabelFocused: { color: theme.colors.primary },
 });
