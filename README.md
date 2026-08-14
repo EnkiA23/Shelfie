@@ -496,4 +496,4 @@ See [`AI_USAGE.md`](AI_USAGE.md) for how AI tools were used to build this.
 
 ---
 
-Copyright (c) 2026 EnkiA23. All rights reserved. See [`LICENSE`](LICENSE).
+Copyright (c) 2026 Ali AL Ayada. All rights reserved. See [`LICENSE`](LICENSE).
