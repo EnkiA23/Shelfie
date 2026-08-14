@@ -4,4 +4,4 @@
 # uses the OpenCV vertical-edge fallback instead — see README "Detector" for the
 # measured difference between the two.
 -r requirements.txt
-ultralytics>=8.3
+ultralytics>=8.4.117
