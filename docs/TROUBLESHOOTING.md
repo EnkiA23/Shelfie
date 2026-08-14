@@ -20,7 +20,7 @@ where the app is running:
 
 A physical phone can never reach `127.0.0.1` — that address means the phone
 itself. Find your LAN IP with `ipconfig` (Windows) or `ifconfig | grep inet`
-(macOS/Linux), put it in `app/.env`, and start the backend bound to all
+(macOS/Linux), put it in `apps/mobile/.env`, and start the backend bound to all
 interfaces:
 
 ```bash
@@ -31,7 +31,7 @@ Both devices must be on the same network, and the host firewall must allow
 inbound connections on port 8000.
 
 If the browser console shows a CORS error rather than a connection failure, add
-the Expo dev server's origin to `CORS_ALLOWED_ORIGINS` in `backend/.env`. Expo
+the Expo dev server's origin to `CORS_ALLOWED_ORIGINS` in `apps/backend/.env`. Expo
 picks a new port when 8081 is taken, so the origin may not be the one you
 expect — read the port off the Expo startup banner.
 
@@ -50,7 +50,7 @@ It makes one small call and names the exact failure. The likely causes:
 
 | What it prints | Meaning | Fix |
 |---|---|---|
-| `key: MISSING` | No key loaded for the configured provider | Set the key in `backend/.env` and restart the server |
+| `key: MISSING` | No key loaded for the configured provider | Set the key in `apps/backend/.env` and restart the server |
 | `vlm_auth_failed` | The provider rejected the key | Check for a typo, a trailing space, or a revoked key |
 | `vlm_model_unavailable` | The model name no longer exists | `python manage.py check_vlm --list-models`, then set `GEMINI_MODEL` |
 | `vlm_rate_limited` | Too many requests | Wait, or lower `VLM_CONCURRENCY` |
@@ -67,7 +67,7 @@ thing to check.
 ## Editing `.env` seems to have no effect
 
 Django reads `.env` once at startup. Restart `runserver`. The same applies to
-`app/.env`: Expo inlines `EXPO_PUBLIC_*` variables at bundle time, so restart
+`apps/mobile/.env`: Expo inlines `EXPO_PUBLIC_*` variables at bundle time, so restart
 `npx expo start` (and clear the cache with `npx expo start -c` if it persists).
 
 ---
@@ -89,7 +89,7 @@ YOLO attempt entirely and save the load time.
 
 ## `load_catalog` says it cannot find `catalog.csv`
 
-Run it from the `backend/` directory. The command resolves the CSV relative to
+Run it from the `apps/backend/` directory. The command resolves the CSV relative to
 the Django `BASE_DIR`, not the current working directory.
 
 ---

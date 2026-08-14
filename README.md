@@ -1,6 +1,6 @@
 # Shelfie — Bookshelf → Library Inventory
 
-[![CI](https://github.com/OWNER/shelfie/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/shelfie/actions/workflows/ci.yml)
+[![CI](https://github.com/OWNER/shelfie/actions/workflows/pr.yml/badge.svg)](https://github.com/OWNER/shelfie/actions/workflows/pr.yml)
 
 Photograph a bookshelf, get a structured personal library. An Expo app sends the photo to a
 Django REST API, which crops individual spines with a local CPU model, reads title/author off
@@ -13,10 +13,11 @@ messy `catalog.csv`, and routes anything uncertain to a human review step before
 
 ## 1. Setup from a clean clone
 
-### Backend
+### Backend (`apps/backend`)
 
 ```bash
-cd backend
+pnpm install                   # root workspace — installs Nx
+cd apps/backend
 python -m venv venv
 venv\Scripts\activate          # Windows
 # source venv/bin/activate     # macOS / Linux
@@ -26,7 +27,7 @@ copy .env.example .env         # cp on macOS/Linux
 
 python manage.py migrate
 python manage.py load_catalog
-python manage.py runserver 0.0.0.0:8000
+pnpm backend:dev               # or: python manage.py runserver 0.0.0.0:8000
 ```
 
 `requirements.txt` is deliberately small and pure-wheel. The YOLO detector lives in
@@ -44,11 +45,11 @@ without spending anything.
 
 ### Where to put your API key
 
-Open `backend/.env` and fill in **one** provider. Gemini is the default because its Flash tier
+Open `apps/backend/.env` and fill in **one** provider. Gemini is the default because its Flash tier
 is the cheapest practical option and has a free quota.
 
 ```ini
-# backend/.env
+# apps/backend/.env
 VLM_PROVIDER=gemini                 # gemini | openai | anthropic
 GEMINI_API_KEY=your-key-here        # <-- paste your key here
 GEMINI_MODEL=gemini-3.1-flash-lite
@@ -84,23 +85,22 @@ fails if either rule is broken (see §9).
 If you would rather not use a key at all, leave `VLM_DRY_RUN=True` and use the **"Demo without
 API"** button in the app, which exercises the full review-and-save flow with canned data.
 
-### Expo app
+### Expo app (`apps/mobile`)
 
 ```bash
-cd app
-npm install
-copy .env.example .env
-npx expo start
+pnpm mobile:install            # npm ci inside apps/mobile
+copy apps/mobile/.env.example apps/mobile/.env
+pnpm mobile:dev                # npx expo start
 ```
 
 Then press `a` for an Android emulator, `i` for an iOS simulator, or scan the QR code with
 Expo Go on a physical phone.
 
-`app/.env` controls where the app looks for the backend:
+`apps/mobile/.env` controls where the app looks for the backend:
 
 ```ini
 EXPO_PUBLIC_API_URL=http://192.168.1.42:8000   # your machine's LAN IP for a real phone
-EXPO_PUBLIC_API_TOKEN=dev-token                 # must match APP_SHARED_TOKEN in backend/.env
+EXPO_PUBLIC_API_TOKEN=dev-token                 # must match APP_SHARED_TOKEN in apps/backend/.env
 ```
 
 Defaults if unset: `10.0.2.2:8000` on Android emulator, `127.0.0.1:8000` elsewhere. **A physical
@@ -110,12 +110,10 @@ phone cannot reach `127.0.0.1`** — it must be your machine's LAN IP, with the 
 ### Tests and checks
 
 ```bash
-cd backend
-python -m pytest scanner/tests -q     # 27 tests: 9 matching, 18 pipeline/API
-ruff check . && ruff format --check .
-
-cd ../app
-npx tsc --noEmit
+pnpm install
+nx run backend:test            # 27 tests
+nx run backend:lint && nx run backend:format-check
+nx run mobile:typecheck
 ```
 
 These are exactly what CI runs, so a green local run means a green pipeline.
@@ -123,36 +121,37 @@ These are exactly what CI runs, so a green local run means a green pipeline.
 ### Repository layout
 
 ```
-.github/workflows/ci.yml   Lint, tests, typecheck, secret scan
+.github/workflows/pr.yml   Nx-backed lint, tests, typecheck, secret scan
+.cursor/agents/            Cursor master agent (FriendMap pattern)
 .cursor/skills/            The four build passes, checked in and reusable
-app/                       Expo (React Native) client
-  api/client.ts              Single place that talks to the backend
-  components/                Shared UI: buttons, cards, banners
-  lib/warnings.ts            Backend warning codes → human messages
-  screens/                   Capture, Review, Library
-backend/                   Django + DRF API
-  scanner/
-    views.py                 Thin controllers: parse, validate, delegate
-    pipeline.py              Composes the three stages, owns the try/except
-    detector.py              Stage 1: YOLOv8n, OpenCV fallback
-    vlm.py                   Stage 2: hosted vision model clients
-    matching.py              Stage 3: fuzzy match + confidence score
-    metrics.py               Latency, token accounting, spend caps
-  catalog.csv                The messy catalog, reviewable in version control
-docs/                      Architecture decisions and troubleshooting
-scripts/check_no_secrets.sh  Fails the build if a credential is ever tracked
-test_photos/               Committed images reproducing each failure mode
+.github/agents/            GitHub Copilot-style specialist agents
+apps/
+  backend/                 Django + DRF API
+    scanner/               pipeline, detector, vlm, matching, metrics
+    catalog.csv            messy catalog, reviewable in git
+  mobile/                  Expo (React Native) client
+    api/client.ts          single network boundary
+    lib/warnings.ts        backend codes → human messages
+    screens/               Capture, Review, Library
+docs/                      Architecture, troubleshooting, feature map
+scripts/check_no_secrets.sh
+test_photos/               committed failure-mode images
+package.json, nx.json      root commands and Nx workspace
+CLAUDE.md                  repo guide (commands, layout, agents)
 ```
 
-Two top-level components rather than an `apps/`+`packages/` workspace: with exactly one API and
-one client, the extra nesting would add a directory level and a build tool without removing any
-actual problem. The reasoning is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Two apps under `apps/` rather than loose folders at the repo root — the same Nx monorepo
+pattern used in FriendMap. Root `package.json` + `nx.json` give one command surface
+(`pnpm backend:dev`, `nx run backend:test`) so adding a third app later (e.g. a web admin)
+is a new folder under `apps/`, not a new repo. Reasoning in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### Further reading
 
 | Document | Contents |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Monorepo, controller/service layering, monolith-vs-microservices |
+| [`docs/shelfie-features.md`](docs/shelfie-features.md) | Feature → file map for adding work |
+| [`CLAUDE.md`](CLAUDE.md) | Monorepo commands, agent workflow, where to add things |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Every environment failure we hit, and the fix |
 | [`AGENTS.md`](AGENTS.md) | Conventions any change must follow |
 | [`AI_USAGE.md`](AI_USAGE.md) | Which AI pass wrote which file |
@@ -271,7 +270,7 @@ above is arithmetic the code performs rather than a figure typed into this file.
 
 ## 4. The catalog
 
-`backend/catalog.csv` — 130 entries, columns: `id, title, author, alternate_titles, edition_info`.
+`apps/backend/catalog.csv` — 130 entries, columns: `id, title, author, alternate_titles, edition_info`.
 Load it with `python manage.py load_catalog`. It was first-drafted with an LLM and then hand-edited
 so that each required ambiguity is actually present and actually breaks naive matching.
 
@@ -373,7 +372,7 @@ anything about the key or the model — are promoted once to scan level so the a
 actionable banner instead of ten identical row warnings, and are never retried, because retrying
 a 404 only burns latency.
 
-`app/lib/warnings.ts` is the single place that turns a code into a message and decides whether it
+`apps/mobile/lib/warnings.ts` is the single place that turns a code into a message and decides whether it
 is the user's problem ("retake the photo") or the operator's ("fix the key"). Every path here is
 covered by `scanner/tests/test_pipeline.py`.
 
@@ -416,12 +415,12 @@ endpoint being open to the network.
 
 ## 9. CI
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+`.github/workflows/pr.yml` runs on every push and pull request (Nx monorepo validation):
 
-| Job | What it does |
+| Step | What it does |
 |---|---|
-| **backend** (Python 3.11 and 3.12) | `ruff check`, `ruff format --check`, Django system checks, `makemigrations --check` so a model edit cannot land without its migration, then pytest |
-| **app** | `npm ci` and `tsc --noEmit` |
+| **pnpm + Nx** | `backend:lint`, `backend:format-check`, `backend:check`, `backend:migrations-check`, `backend:test` |
+| **mobile** | `mobile:install`, `mobile:typecheck` |
 | **secrets** | `scripts/check_no_secrets.sh`, then gitleaks over full history |
 
 **CI runs with no API key at all**, and with `VLM_DRY_RUN=True`. Every test either mocks the
