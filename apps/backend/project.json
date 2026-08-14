@@ -1,0 +1,78 @@
+{
+  "name": "backend",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/backend",
+  "projectType": "application",
+  "tags": ["type:app", "scope:backend", "framework:django"],
+  "targets": {
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python manage.py runserver 0.0.0.0:8000",
+        "cwd": "apps/backend"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python -m pytest scanner/tests -q",
+        "cwd": "apps/backend"
+      },
+      "cache": true,
+      "inputs": ["default"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python -m ruff check .",
+        "cwd": "apps/backend"
+      },
+      "cache": true,
+      "inputs": ["default"]
+    },
+    "format-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python -m ruff format --check .",
+        "cwd": "apps/backend"
+      },
+      "cache": true,
+      "inputs": ["default"]
+    },
+    "check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python manage.py check --fail-level WARNING",
+        "cwd": "apps/backend"
+      }
+    },
+    "migrations-check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python manage.py makemigrations --check --dry-run",
+        "cwd": "apps/backend"
+      }
+    },
+    "check-vlm": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python manage.py check_vlm",
+        "cwd": "apps/backend"
+      }
+    },
+    "load-catalog": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python manage.py load_catalog",
+        "cwd": "apps/backend"
+      }
+    },
+    "benchmark": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "python manage.py benchmark_scan --runs 2",
+        "cwd": "apps/backend"
+      }
+    }
+  }
+}
