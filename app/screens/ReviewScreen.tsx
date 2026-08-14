@@ -80,6 +80,25 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
     }
   }
 
+  async function confirmItem(item: EditableItem, index: number, section: "high" | "review") {
+    setSaving(true);
+    setError("");
+    try {
+      await saveLibraryEntry({
+        catalog_book_id: item.selectedCatalogId,
+        raw_title: item.editTitle.trim(),
+        raw_author: item.editAuthor.trim(),
+        confidence_score: item.confidence_score,
+      });
+      const setter = section === "high" ? setHigh : setReview;
+      setter((prev) => prev.filter((_, i) => i !== index));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save to library.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSearch(index: number, query: string, section: "high" | "review") {
     const setter = section === "high" ? setHigh : setReview;
     const list = section === "high" ? high : review;
@@ -105,6 +124,7 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
     section: "high" | "review",
     onDiscard: () => void,
   ) {
+    const canConfirm = item.editTitle.trim().length > 0;
     return (
       <View key={`${section}-${index}`} style={styles.editCard}>
         <BookCard
@@ -166,7 +186,22 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
             ))}
           </View>
         ) : null}
-        <AppButton label="Discard" variant="danger" onPress={onDiscard} />
+        <View style={styles.cardActions}>
+          <AppButton
+            label="Add to library"
+            variant="secondary"
+            onPress={() => confirmItem(item, index, section)}
+            disabled={saving || !canConfirm}
+            style={styles.cardActionButton}
+          />
+          <AppButton
+            label="Discard"
+            variant="danger"
+            onPress={onDiscard}
+            disabled={saving}
+            style={styles.cardActionButton}
+          />
+        </View>
       </View>
     );
   }
@@ -264,6 +299,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   editCard: { marginTop: theme.spacing.md },
+  cardActions: { flexDirection: "row", gap: theme.spacing.sm },
+  cardActionButton: { flex: 1 },
   input: {
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
