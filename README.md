@@ -1,13 +1,11 @@
 # Shelfie — Bookshelf → Library Inventory
 
-[![CI](https://github.com/OWNER/shelfie/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/shelfie/actions/workflows/ci.yml)
+[![CI](https://github.com/EnkiA23/Shelfie/actions/workflows/ci.yml/badge.svg)](https://github.com/EnkiA23/Shelfie/actions/workflows/ci.yml)
 
 Photograph a bookshelf, get a structured personal library. An Expo app sends the photo to a
 Django REST API, which crops individual spines with a local CPU model, reads title/author off
 each crop with a hosted vision-language model, fuzzy-matches every read against a deliberately
 messy `catalog.csv`, and routes anything uncertain to a human review step before it is saved.
-
-> Replace `OWNER` in the badge URL above with your GitHub account once the repo is pushed.
 
 ---
 
