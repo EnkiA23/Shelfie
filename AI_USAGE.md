@@ -8,7 +8,7 @@ what I would be able to defend line by line.
 | Tool | Role |
 |---|---|
 | Cursor (agent mode, Claude-family model) | Wrote most of the repository, driven in scoped passes |
-| Gemini 2.0 Flash | The product's own Stage 2 VLM — reads title/author off spine crops at runtime |
+| Gemini 3.1 Flash-Lite | The product's own Stage 2 VLM — reads title/author off spine crops at runtime |
 
 The agent was driven in separate, single-purpose passes rather than one "build the whole thing"
 prompt, so each pass maps to a reviewable diff.
@@ -65,8 +65,7 @@ match a bug.
 - **`benchmark_scan` management command** — AI-written so the README numbers come from a
   reproducible command rather than hand timing.
 - **`README.md`** — structure and prose AI-assisted; every number in it was produced by running
-  `benchmark_scan` on this machine. Where a figure is not measured (live VLM latency) the README
-  says so instead of estimating.
+  `benchmark_scan` on this machine against a live key. Nothing in §3 is an estimate.
 - **`scripts/generate_test_photos.py`** — AI-written; synthetic on purpose so the three failure
   modes reproduce on any machine, and flagged as a limitation in the README.
 
@@ -84,8 +83,30 @@ Run only after the pipeline and both screens worked end to end, so it is one rev
 
 One behaviour change went in as a `fix` rather than part of the refactor: `vlm.py` used to
 return canned dry-run data when live mode was on but no API key was set, which silently
-produced fake matches from a misconfiguration. It now returns `None` and the pipeline emits a
-`vlm_not_configured` warning, with a test asserting no confident matches come back.
+produced fake matches from a misconfiguration. It now reports `vlm_not_configured` and the
+pipeline surfaces it, with a test asserting no confident matches come back.
+
+## Pass 7 — First live run, and what it broke
+
+Everything up to here ran in dry-run. Pointing a real key at it surfaced problems no amount of
+mocking would have:
+
+- **The default model was dead.** `gemini-2.0-flash` had been retired; every call returned HTTP
+  404. Because `vlm.py` collapsed all failures to `None`, this was indistinguishable from a bad
+  key, and diagnosing it needed a throwaway script. That is the origin of the typed failure
+  codes and of the `check_vlm` command — the fix was to make the system able to explain itself,
+  not just to change a string.
+- **A scan took 16 seconds.** Ten sequential round trips at ~1.4 s each. Reading crops on a
+  bounded thread pool took it to ~2 s. This was invisible in dry-run, where stage 2 costs
+  milliseconds.
+- **Cost accounting was a guess, and wrong in both directions.** It assumed 900 input tokens;
+  the real figure is ~1070. It also charged for calls that 404'd and were never billed, which
+  would have burned the daily cap on free failures. Both now use the provider's reported usage.
+- **Measured accuracy replaced assumed accuracy.** 8 of 10 spines on the readable photo, 1 of 10
+  on the deliberately blurred one, with the rest correctly routed to review.
+
+The `partial_ratio` weighting and the −0.20 author penalty, both tuned in dry-run against the
+test suite, held up unchanged against real model output.
 
 ## The four passes as checked-in skills
 

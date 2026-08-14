@@ -25,7 +25,7 @@ never the matching logic or the review UI.
 
 ## Layer rules
 
-Respect the boundaries in `ARCHITECTURE.md`:
+Respect the boundaries in `docs/ARCHITECTURE.md`:
 
 - `views.py` parses, validates, delegates, shapes the response. No scoring math, no image
   processing, no provider SDK calls.

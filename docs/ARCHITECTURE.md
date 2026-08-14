@@ -17,6 +17,29 @@ A split into `shelfie-backend` and `shelfie-app` would:
   requirement that the project runs from a clean clone.
 - **Buy nothing at this scale.** No independent deploy cadence, no separate teams, no second
   frontend client that would need the API versioned against it.
+- **Split CI in half.** One workflow currently proves the API and the client that consumes it
+  agree, on the same commit.
+
+### Why not `apps/` + `packages/`
+
+The obvious next step up is an Nx- or Turborepo-style workspace: `apps/api`, `apps/mobile`,
+`packages/shared`, `infrastructure/`. That shape solves three problems, and this project has
+none of them.
+
+| That layout exists to | Shelfie's situation |
+|---|---|
+| Share code between several apps | Two components, nothing shared but the HTTP contract |
+| Avoid rebuilding untouched projects | A test run is seconds; there is no build graph to prune |
+| Give many teams clear ownership | One author |
+
+It would cost a directory level on every path, a workspace tool to install and keep working, and
+several folders that start empty. The organising work that layout is really doing — keep
+generated artefacts out, keep docs somewhere findable, keep CI declarative — is done here by
+`docs/`, `scripts/`, `.github/` and `.gitignore` instead.
+
+**What would change my mind:** a second client (a web dashboard, say) that needed the response
+types. At that point `packages/shared-types` earns its keep, and the move is a rename rather
+than a rewrite, because the API boundary is already a single module on each side.
 
 ---
 
@@ -40,7 +63,7 @@ pipeline.py                 ORCHESTRATION
   collect metrics and warning codes
      │
      ├──▶ detector.py       SERVICE   detect_spines(bytes) -> list[BoundingBox]
-     ├──▶ vlm.py            SERVICE   extract_text_from_crop(Image) -> dict | None
+     ├──▶ vlm.py            SERVICE   extract_text_from_crop(Image) -> VlmResult
      ├──▶ matching.py       SERVICE   match_against_catalog(...) -> list[ScoredCandidate]
      └──▶ metrics.py        SERVICE   MetricsTracker, estimate_vlm_cost(...)
 ```
@@ -69,6 +92,18 @@ That is the property the split exists to buy.
 storage backend. **DI container** — four modules with one entry point each; constructor
 injection would add indirection without decoupling anything real. **DDD entities** — the domain
 is a book with a title and an author.
+
+### Service return values name their failures
+
+`vlm.py` originally returned `dict | None`. That is the smallest possible contract, and it was
+the wrong one: `None` meant "no key", "key rejected", "model retired", "timed out" and "the
+model replied with broken JSON" all at once. Those need five different responses — three from
+the operator, two from the user — and the caller had no way to tell them apart.
+
+It now returns a `VlmResult` carrying either the extraction or a specific `failure_code`, plus
+the provider's token usage. The pipeline maps the code to a warning, decides whether to retry,
+and decides whether the call was billable. **A service may hide its implementation, but it may
+not hide which of its failure modes occurred.**
 
 ---
 
@@ -106,7 +141,7 @@ POST /api/scan/  (multipart photo)
   ├─ upload validation      400 above 8 MB or non-image content type
   │
   ├─ Stage 1  detect_spines()      YOLOv8n ─▶ OpenCV ─▶ full-image fallback
-  ├─ Stage 2  extract_text_from_crop()   per crop, timeout + 1 retry
+  ├─ Stage 2  extract_text_from_crop()   per crop, 5 at a time, timeout + 1 retry
   ├─ Stage 3  match_against_catalog()    score 0.0–1.0 + alternatives
   │
   ├─ ScanLog row written (latency, estimated cost, counts)
@@ -125,6 +160,7 @@ App.tsx              bottom tabs (Scan, Library) + Review as a stack screen
 screens/             one file per screen, no cross-screen imports
 components/          AppButton, BookCard, ErrorBanner — presentational only
 api/client.ts        the only module that knows the API exists
+lib/warnings.ts      backend warning codes -> message + severity
 theme.ts             colour, spacing and radius tokens
 ```
 
@@ -135,6 +171,12 @@ of shared state does not justify a state-management dependency.
 helper that attaches the bearer token and normalises error payloads into readable messages.
 Platform differences — the web `File` upload versus the React Native `{uri, name, type}`
 form — are handled there so no screen has to care.
+
+`lib/warnings.ts` is the mirror of that boundary for the backend's warning codes. Keeping the
+mapping in one module means a screen never invents its own wording for a failure, and adding a
+warning code to the pipeline has exactly one place it must be handled on the client. It also
+carries the severity, which is what decides whether the user sees "retake the photo" or the
+operator sees "fix the key".
 
 ---
 
