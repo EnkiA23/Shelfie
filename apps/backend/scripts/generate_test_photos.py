@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-OUT_DIR = Path(__file__).resolve().parents[2] / "test_photos"
+OUT_DIR = Path(__file__).resolve().parents[3] / "test_photos"
 
 SPINE_COLORS = [
     (94, 60, 48),

@@ -2,7 +2,7 @@
 
 Usage:
     python manage.py benchmark_scan
-    python manage.py benchmark_scan --photos ../test_photos --runs 3
+    python manage.py benchmark_scan --photos ../../test_photos --runs 3
 """
 
 from pathlib import Path
@@ -21,7 +21,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--photos",
-            default=str(Path(settings.BASE_DIR).parent / "test_photos"),
+            default=str(Path(settings.BASE_DIR).parent.parent / "test_photos"),
             help="Directory of images to benchmark.",
         )
         parser.add_argument("--runs", type=int, default=1, help="Repetitions per image.")
