@@ -15,7 +15,7 @@ committed deliberately, and a large diff is unreviewable before a deadline.
    alone.
 
    ```bash
-   cd apps/backend && python -m pytest scanner/tests/test_pipeline.py::test_name -x -q
+   cd backend && python -m pytest scanner/tests/test_pipeline.py::test_name -x -q
    ```
 
 2. **Name the root cause in one sentence** before editing. If you cannot, keep investigating.
@@ -28,7 +28,7 @@ committed deliberately, and a large diff is unreviewable before a deadline.
 5. **Run the whole suite**, not just the one test:
 
    ```bash
-   nx run backend:test
+   cd backend && python -m pytest scanner/tests -q
    ```
 
 ## Threshold bugs

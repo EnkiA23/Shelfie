@@ -47,7 +47,7 @@ surface to the user, not vanish.
 - Assert behaviour and thresholds, not implementation details of the scoring blend.
 
 ```bash
-nx run backend:test
+cd backend && python -m pytest scanner/tests -v
 ```
 
 Commit as `test(scope): ...`, separate from any implementation commit.

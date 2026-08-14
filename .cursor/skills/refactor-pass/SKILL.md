@@ -12,7 +12,7 @@ Run this **after** correctness, never blended into feature work, so the diff is 
 ## Precondition
 
 ```bash
-nx run backend:test
+cd backend && python -m pytest scanner/tests -q
 ```
 
 All green before you start. If anything fails, that is a `bugfix-pass`, not this.
@@ -39,7 +39,7 @@ editing, you have gone too far. The one exception is deleting a code path that n
 ## Verify and commit
 
 ```bash
-nx run backend:test && python manage.py check
+cd backend && python -m pytest scanner/tests -q && python manage.py check
 ```
 
 One commit, `refactor: ...`, covering the whole pass.

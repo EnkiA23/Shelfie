@@ -2,21 +2,22 @@ version: 2
 
 updates:
   - package-ecosystem: pip
-    directory: /apps/backend
+    directory: /backend
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # One PR for routine bumps; anything major still comes through alone.
       backend-minor:
         update-types: [minor, patch]
 
   - package-ecosystem: npm
-    directory: /apps/mobile
+    directory: /app
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      mobile-minor:
+      app-minor:
         update-types: [minor, patch]
 
   - package-ecosystem: github-actions

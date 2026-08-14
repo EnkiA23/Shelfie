@@ -42,10 +42,10 @@ for pattern in "${patterns[@]}"; do
 done
 
 # 3. The example env must ship with empty values, or it stops being an example.
-if git ls-files --error-unmatch apps/backend/.env.example >/dev/null 2>&1; then
-  filled=$(grep -E '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.+' apps/backend/.env.example || true)
+if git ls-files --error-unmatch backend/.env.example >/dev/null 2>&1; then
+  filled=$(grep -E '^(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.+' backend/.env.example || true)
   if [ -n "$filled" ]; then
-    fail "apps/backend/.env.example has a non-empty API key:"$'\n'"$filled"
+    fail "backend/.env.example has a non-empty API key:"$'\n'"$filled"
   fi
 fi
 

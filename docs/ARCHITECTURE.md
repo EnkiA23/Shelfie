@@ -6,9 +6,7 @@ Structural decisions, and the reasoning I would give if asked to defend them liv
 
 ## 1. Monorepo, not two repositories
 
-`apps/backend/` and `apps/mobile/` live under `apps/` in one repository with one root `README.md`.
-Root `package.json`, `pnpm-workspace.yaml`, and `nx.json` provide the same command surface as
-FriendMap: `pnpm backend:dev`, `nx run backend:test`, `pnpm mobile:dev`.
+`backend/` and `app/` are top-level folders in one repository with one root `README.md`.
 
 A split into `shelfie-backend` and `shelfie-app` would:
 
@@ -22,20 +20,26 @@ A split into `shelfie-backend` and `shelfie-app` would:
 - **Split CI in half.** One workflow currently proves the API and the client that consumes it
   agree, on the same commit.
 
-### Why `apps/` but not `packages/` yet
+### Why not `apps/` + `packages/`
 
-We use the FriendMap pattern: deployables under `apps/backend` and `apps/mobile`, orchestrated
-by Nx at the root. A `packages/` folder waits until there is code two apps actually share.
+The obvious next step up is an Nx- or Turborepo-style workspace: `apps/api`, `apps/mobile`,
+`packages/shared`, `infrastructure/`. That shape solves three problems, and this project has
+none of them.
 
-| `packages/` exists to | Shelfie today |
+| That layout exists to | Shelfie's situation |
 |---|---|
-| Share types or UI between several clients | Two apps, contract is HTTP + warning codes |
-| Publish a library independently | Nothing to publish |
-| Enforce import boundaries with `@nx/enforce-module-boundaries` | One API module, one client module |
+| Share code between several apps | Two components, nothing shared but the HTTP contract |
+| Avoid rebuilding untouched projects | A test run is seconds; there is no build graph to prune |
+| Give many teams clear ownership | One author |
 
-**What would change my mind:** a web admin or shared TypeScript types. Then add
-`packages/shared-types` and wire path aliases in `tsconfig.base.json` — the Nx layout is
-already in place for that.
+It would cost a directory level on every path, a workspace tool to install and keep working, and
+several folders that start empty. The organising work that layout is really doing — keep
+generated artefacts out, keep docs somewhere findable, keep CI declarative — is done here by
+`docs/`, `scripts/`, `.github/` and `.gitignore` instead.
+
+**What would change my mind:** a second client (a web dashboard, say) that needed the response
+types. At that point `packages/shared-types` earns its keep, and the move is a rename rather
+than a rewrite, because the API boundary is already a single module on each side.
 
 ---
 

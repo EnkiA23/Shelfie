@@ -8,12 +8,11 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ScanResponse, scanBookshelf } from "../api/client";
 import AppButton from "../components/AppButton";
 import ErrorBanner from "../components/ErrorBanner";
-import ScreenHeader from "../components/ScreenHeader";
 import { primaryWarning } from "../lib/warnings";
 import { theme } from "../theme";
 
@@ -22,7 +21,6 @@ type Props = {
 };
 
 export default function CaptureScreen({ onScanComplete }: Props) {
-  const insets = useSafeAreaInsets();
   const [uri, setUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -87,22 +85,18 @@ export default function CaptureScreen({ onScanComplete }: Props) {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: Math.max(insets.bottom, 16) + 88 },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <ScreenHeader
-          kicker="Shelfie"
-          title="Scan your shelf"
-          subtitle="Photograph book spines — we read titles with Gemini vision and match your catalog."
-          style={styles.hero}
-        />
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <Text style={styles.kicker}>Shelfie</Text>
+          <Text style={styles.title}>Scan your shelf</Text>
+          <Text style={styles.subtitle}>
+            Point your camera at book spines. We crop locally, read titles with Gemini vision,
+            then match against the catalog.
+          </Text>
+        </View>
 
         <ErrorBanner message={error} variant="error" />
-        <ErrorBanner message={notice} variant="warning" />
+        <ErrorBanner message={notice} variant={notice ? "warning" : "error"} />
 
         <View style={styles.previewFrame}>
           {uri ? (
@@ -155,8 +149,28 @@ export default function CaptureScreen({ onScanComplete }: Props) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.bg },
-  container: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xs },
-  hero: { paddingHorizontal: 0, paddingTop: 0 },
+  container: { padding: theme.spacing.lg, paddingBottom: theme.spacing.xl },
+  hero: { marginBottom: theme.spacing.lg },
+  kicker: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: theme.colors.text,
+    lineHeight: 40,
+  },
+  subtitle: {
+    marginTop: theme.spacing.sm,
+    fontSize: 15,
+    lineHeight: 22,
+    color: theme.colors.textMuted,
+  },
   previewFrame: {
     borderRadius: theme.radius.lg,
     overflow: "hidden",

@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw
 from scanner.vlm import api_key_for_provider, extract_text_from_crop
 
 REMEDIES = {
-    "vlm_not_configured": "Set the API key for VLM_PROVIDER in apps/backend/.env.",
+    "vlm_not_configured": "Set the API key for VLM_PROVIDER in backend/.env.",
     "vlm_auth_failed": "The key was rejected. Check for typos or a revoked key.",
     "vlm_model_unavailable": (
         "The model name no longer exists. Run with --list-models and set GEMINI_MODEL."
@@ -74,7 +74,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     "VLM_DRY_RUN=True, so no live call was made. "
-                    "Set it to False in apps/backend/.env to test the key."
+                    "Set it to False in backend/.env to test the key."
                 )
             )
             return

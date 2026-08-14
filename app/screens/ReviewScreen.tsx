@@ -6,7 +6,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   CatalogBook,
@@ -18,7 +18,6 @@ import {
 import AppButton from "../components/AppButton";
 import BookCard from "../components/BookCard";
 import ErrorBanner from "../components/ErrorBanner";
-import ScreenHeader from "../components/ScreenHeader";
 import { theme } from "../theme";
 
 type Props = {
@@ -43,7 +42,6 @@ function toEditable(item: ScanItem): EditableItem {
 }
 
 export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
-  const insets = useSafeAreaInsets();
   const [high, setHigh] = useState<EditableItem[]>([]);
   const [review, setReview] = useState<EditableItem[]>([]);
   const [error, setError] = useState("");
@@ -61,30 +59,7 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
     setReview(scanResult.needs_review.map(toEditable));
   }, [scanResult]);
 
-  async function persistOne(item: EditableItem, section: "high" | "review", index: number) {
-    if (!item.editTitle.trim()) {
-      setError("Each book needs a title before saving.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await saveLibraryEntry({
-        catalog_book_id: item.selectedCatalogId,
-        raw_title: item.editTitle.trim(),
-        raw_author: item.editAuthor.trim(),
-        confidence_score: item.confidence_score,
-      });
-      const setter = section === "high" ? setHigh : setReview;
-      setter((prev) => prev.filter((_, i) => i !== index));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save to library.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function persistItems(items: EditableItem[], navigateAfter = true) {
+  async function persistItems(items: EditableItem[]) {
     if (!items.length) return;
     setSaving(true);
     setError("");
@@ -97,12 +72,7 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
           confidence_score: item.confidence_score,
         });
       }
-      if (navigateAfter) {
-        onSaved();
-      } else {
-        setHigh((prev) => prev.filter((item) => !items.includes(item)));
-        setReview((prev) => prev.filter((item) => !items.includes(item)));
-      }
+      onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save to library.");
     } finally {
@@ -196,17 +166,7 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
             ))}
           </View>
         ) : null}
-        <View style={styles.cardActions}>
-          <AppButton label="Discard" variant="danger" onPress={onDiscard} style={styles.actionHalf} />
-          <AppButton
-            label="Save to library"
-            variant={section === "review" ? "primary" : "secondary"}
-            onPress={() => persistOne(item, section, index)}
-            disabled={saving || !item.editTitle.trim()}
-            loading={saving}
-            style={styles.actionHalf}
-          />
-        </View>
+        <AppButton label="Discard" variant="danger" onPress={onDiscard} />
       </View>
     );
   }
@@ -227,19 +187,7 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: Math.max(insets.bottom, 16) + 24 },
-        ]}
-      >
-        <ScreenHeader
-          kicker="Review"
-          title="Confirm matches"
-          subtitle="Edit titles, pick catalog matches, then save to your library."
-          style={styles.header}
-        />
-
+      <ScrollView contentContainerStyle={styles.container}>
         <ErrorBanner message={error} />
 
         <View style={styles.metricsCard}>
@@ -275,15 +223,6 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
           <Text style={styles.sectionTitle}>Needs review</Text>
           <Text style={styles.sectionCount}>{review.length}</Text>
         </View>
-        {review.length > 0 ? (
-          <AppButton
-            label={saving ? "Saving…" : `Save all reviewed (${review.length})`}
-            onPress={() => persistItems(review.filter((i) => i.editTitle.trim()))}
-            disabled={saving}
-            loading={saving}
-            style={{ marginBottom: theme.spacing.sm }}
-          />
-        ) : null}
         {review.map((item, index) =>
           renderEditableCard(item, index, "review", () => {
             setReview((prev) => prev.filter((_, i) => i !== index));
@@ -299,8 +238,7 @@ export default function ReviewScreen({ scanResult, onSaved, onBack }: Props) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.bg },
-  container: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xs },
-  header: { paddingHorizontal: 0, paddingTop: 0, marginBottom: theme.spacing.md },
+  container: { padding: theme.spacing.lg, paddingBottom: theme.spacing.xl },
   metricsCard: {
     backgroundColor: theme.colors.primary,
     borderRadius: theme.radius.md,
@@ -352,15 +290,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
     fontWeight: "600",
-    fontSize: 14,
-    lineHeight: 20,
   },
-  cardActions: {
-    flexDirection: "row",
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.xs,
-  },
-  actionHalf: { flex: 1 },
   emptySection: { color: theme.colors.textMuted, marginBottom: theme.spacing.md },
   emptyWrap: {
     flex: 1,
